@@ -7,6 +7,7 @@ import Button from '../../../components/ui/Button'
 import { useProgressStore } from '../../../store/progressStore'
 import { useConfigStore } from '../../../store/configStore'
 import { useTraceStore, createTraceEvent } from '../../../store/traceStore'
+import { useContextMemoryStore } from '../../../store/contextMemoryStore'
 import { LEVEL_1_1_CONCEPT } from '../../../data/conceptContent'
 import { LEVEL_1_1_QUIZ } from '../../../data/quizQuestions'
 
@@ -59,6 +60,7 @@ export default function BoundaryLevel() {
   const completeLevel = useProgressStore((s) => s.completeLevel)
   const apiKey = useConfigStore((s) => s.apiKey)
   const { addEvent, clearEvents } = useTraceStore()
+  const { pushContext, pushMemory, reset: resetCM } = useContextMemoryStore()
 
   const [mode, setMode] = useState<'live' | 'replay'>('replay')
   const [chat, setChat] = useState<ChatMsg[]>([])
@@ -71,7 +73,7 @@ export default function BoundaryLevel() {
   const [showFeedback, setShowFeedback] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { return () => clearEvents() }, [])
+  useEffect(() => { return () => { clearEvents(); resetCM() } }, [])
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [chat])
 
   // ─── Simulated ───
@@ -132,7 +134,7 @@ export default function BoundaryLevel() {
 
     // Boot context (only first message in this conversation)
     if (chat.length === 0) {
-      clearEvents() // new conversation → clear old trace
+      clearEvents(); resetCM() // new conversation → clear old trace
       addEvent(createTraceEvent('system_context', 'System Prompt', {
         system_contract: SYSTEM_PROMPT,
         protocol: 'native_function_calling', parallel: false, version: 'system_contract.v2',
@@ -260,6 +262,21 @@ export default function BoundaryLevel() {
           new: `+2 (assistant + tool)`,
           tokens: usage ? `${usage.total_tokens || '?'}` : '?',
         }, 'assistant(tool_calls) + tool(call_id) 作为不可拆分协议组追加 → 循环继续'))
+
+        // Update Context & Memory store
+        const totalToks = Number(usage?.total_tokens) || 0
+        pushContext({
+          totalMessages: apiMessages.length,
+          systemTokens: 150, userTokens: Math.floor(totalToks * 0.3),
+          assistantTokens: Math.floor(totalToks * 0.3),
+          toolResultTokens: Math.floor(totalToks * 0.2),
+          totalTokens: totalToks, contextWindow: 8000,
+          usagePercent: Math.round((totalToks / 8000) * 100), compacted: false,
+        })
+        pushMemory({ type: 'observation', content: `${toolName}: ${toolResult.slice(0, 120)}`, timestamp: Date.now(), id: '' })
+        if (toolName === 'list_files' || toolName === 'read_file' || toolName === 'find_files') {
+          pushMemory({ type: 'file_state', content: `${toolName} → ${toolResult.slice(0, 100)}`, timestamp: Date.now(), id: '' })
+        }
 
         // Show in chat
         newChat.push({
