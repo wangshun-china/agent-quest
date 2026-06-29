@@ -103,9 +103,6 @@ export default function BoundaryLevel() {
       addEvent(createTraceEvent('observation', `Observation ← ${resp.tool}`, {
         result: resp.toolResult,
       }, `role=tool + tool_call_id 回传结果。大结果按 TOOL_RESULT_MAX_TOKENS 裁剪后进入模型上下文`))
-      addEvent(createTraceEvent('context_update', '上下文更新', {
-        messages: chat.length + 2, phase: 'tool',
-      }, 'assistant(tool_calls) + tool(call_id) 作为不可拆分协议组追加到 messages'))
     } else {
       addEvent(createTraceEvent('model_response', '模型 → final', {
         finish_reason: 'stop', content: resp.assistant,
@@ -263,13 +260,7 @@ memory 注入为 harness context item (kind="relevant_memory", priority=3)`)
           content: toolResult,
         })
 
-        addEvent(createTraceEvent('context_update', `Round ${round}: 上下文更新`, {
-          total_messages: apiMessages.length,
-          new: `+2 (assistant + tool)`,
-          tokens: usage ? `${usage.total_tokens || '?'}` : '?',
-        }, 'assistant(tool_calls) + tool(call_id) 作为不可拆分协议组追加 → 循环继续'))
-
-        // Update Context & Memory store
+        // Context pushed to store (shown via 📊 badge, not as separate event)
         const totalToks = Number(usage?.total_tokens) || 0
         const sysCount = apiMessages.filter((m: {role:string}) => m.role === 'system').length
         const usrCount = apiMessages.filter((m: {role:string}) => m.role === 'user').length
