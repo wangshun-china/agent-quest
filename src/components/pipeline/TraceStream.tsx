@@ -17,28 +17,28 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
   error:          { icon: '❌', label: 'Error' },
 }
 
-// ─── Overlay popup ───
+// ─── Overlay popup (renders to document.body via portal) ───
 function Overlay({ onClose, title, children }: { onClose: () => void; title: string; children: React.ReactNode }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 z-30 bg-black/30 flex items-start justify-center pt-12"
+      className="fixed inset-0 z-[9999] bg-black/40 flex items-start justify-center pt-16 px-8"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <motion.div
-        initial={{ scale: 0.95, y: -10 }}
+        initial={{ scale: 0.97, y: -8 }}
         animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.95, y: -10 }}
-        className="bg-white rounded-xl border border-[#E5E5E5] shadow-xl w-[95%] max-h-[80%] flex flex-col"
+        exit={{ scale: 0.97, y: -8 }}
+        className="bg-white rounded-xl border border-[#E5E5E5] shadow-2xl w-full max-w-3xl max-h-[82vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[#E5E5E5] shrink-0">
-          <h3 className="text-sm font-semibold text-[#1A1A1A]">{title}</h3>
-          <button onClick={onClose} className="text-[#9B9B9B] hover:text-[#1A1A1A] text-lg leading-none px-1">✕</button>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E5E5] shrink-0">
+          <h3 className="text-base font-semibold text-[#1A1A1A]">{title}</h3>
+          <button onClick={onClose} className="text-[#9B9B9B] hover:text-[#1A1A1A] text-xl leading-none px-2 py-1 rounded hover:bg-[#F5F5F5] transition-colors">✕</button>
         </div>
-        <div className="overflow-y-auto p-5">{children}</div>
+        <div className="overflow-y-auto p-6">{children}</div>
       </motion.div>
     </motion.div>
   )
