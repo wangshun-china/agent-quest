@@ -112,6 +112,18 @@ function ContextPopup({ snap, onClose }: { snap: ContextSnap; onClose: () => voi
           })}
         </div>
       </div>
+
+      {/* Action description */}
+      <div className="mt-3 pt-3 border-t border-[#E5E5E5]">
+        <div className="text-[10px] font-semibold text-[#5E6AD2] uppercase mb-1">更新动作</div>
+        <div className="text-[11px] text-[#1A1A1A] leading-relaxed space-y-1">
+          <div>1. ContextBuilder 收集 ContextItem: system_contract(priority=required) + user_message + harness_context(working_memory/summary/memory)</div>
+          <div>2. 按 priority 排序组装 messages，超出 output_reserve 时低优先级项可被省略</div>
+          <div>3. build_context_report(messages) 计算 token → 生成 ContextReport</div>
+          <div>4. 若 total_tokens ≥ context_window × 0.8 → auto-compact: 压缩旧 assistant+tool 消息组</div>
+          <div>5. 产出 ContextManifest → ModelRequest(messages, tools, parallel_tool_calls=False)</div>
+        </div>
+      </div>
     </Overlay>
   )
 }
@@ -127,8 +139,14 @@ function MemoryPopup({ mode, onClose }: { mode: 'retrieve' | 'update'; onClose: 
           <pre className="text-xs font-mono text-[#1A1A1A] leading-relaxed whitespace-pre-wrap bg-[#F8F8F8] rounded-lg p-4 max-h-80 overflow-y-auto">
             {retrievedMemory || '无历史记忆'}
           </pre>
-          <div className="text-[10px] text-[#9B9B9B] mt-2">
-            MemoryRetriever.search(structured_memory_path) + search_relevant_memory(session) → 注入 ContextItem(kind="relevant_memory")
+          <div className="mt-3 pt-3 border-t border-[#E5E5E5]">
+            <div className="text-[10px] font-semibold text-[#D48C20] uppercase mb-1">执行动作</div>
+            <div className="text-[11px] text-[#1A1A1A] leading-relaxed space-y-1">
+              <div>1. read_working_memory(session_path) → 读取上次 run 遗留的工作记忆</div>
+              <div>2. MemoryRetriever.search(structured_memory_path) → 关键词+语义检索结构化记忆</div>
+              <div>3. search_relevant_memory(session) → 搜索 session summary 中的相关内容</div>
+              <div>4. 合并结果 → 注入 ContextItem(kind="relevant_memory", priority=3)</div>
+            </div>
           </div>
         </div>
       )}
@@ -152,8 +170,14 @@ function MemoryPopup({ mode, onClose }: { mode: 'retrieve' | 'update'; onClose: 
               <div className="text-[#9B9B9B]">暂无新记忆</div>
             )}
           </div>
-          <div className="text-[10px] text-[#9B9B9B] mt-3">
-            run 结束时: update_working_memory(run_dir, memory_path) + write_run_memories(run_dir, structured_memory_path)
+          <div className="mt-3 pt-3 border-t border-[#E5E5E5]">
+            <div className="text-[10px] font-semibold text-[#2DA44E] uppercase mb-1">执行动作</div>
+            <div className="text-[11px] text-[#1A1A1A] leading-relaxed space-y-1">
+              <div>1. update_working_memory(run_dir, memory_path) → 更新 run workspace 的工作记忆文件</div>
+              <div>2. write_run_memories(run_dir, structured_memory_path) → 将本 run 的 observation/file_state 转为结构化 MemoryEntry</div>
+              <div>3. MemoryEntry 包含: type/scope/content/evidence/confidence/status/tags/source_run</div>
+              <div>4. 下个 run 开始时 MemoryRetriever 会检索到这些新条目</div>
+            </div>
           </div>
         </div>
       )}
@@ -198,7 +222,7 @@ function EventRow({ event, contextSnap, memoryBadge }: {
             onClick={() => setCtxOpen(true)}
             className="shrink-0 px-2.5 py-1.5 mr-1 rounded-md text-[11px] bg-[#5E6AD2]/8 text-[#5E6AD2] font-semibold hover:bg-[#5E6AD2]/15 transition-colors"
           >
-            📊 {contextSnap.totalMessages}msg
+            📊 上下文 {contextSnap.totalMessages}msg
           </button>
         )}
 
@@ -212,7 +236,7 @@ function EventRow({ event, contextSnap, memoryBadge }: {
                 : 'bg-[#2DA44E]/8 text-[#2DA44E] hover:bg-[#2DA44E]/15'
             }`}
           >
-            📝 {memoryBadge === 'retrieve' ? '检索' : '更新'}
+            📝 Memory{memoryBadge === 'retrieve' ? '检索' : '更新'}
           </button>
         )}
       </div>
@@ -349,7 +373,7 @@ export default function TraceStream() {
           className="mb-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-[#D48C20]/20 bg-[#D48C20]/[0.03] hover:bg-[#D48C20]/[0.06] transition-colors text-left"
         >
           <span className="text-sm">📝</span>
-          <span className="text-xs font-semibold text-[#1A1A1A]">Memory 检索</span>
+          <span className="text-xs font-semibold text-[#1A1A1A]">📝 Memory 检索</span>
           <span className="text-[10px] text-[#9B9B9B] ml-auto">run 开始前</span>
         </button>
       )}
