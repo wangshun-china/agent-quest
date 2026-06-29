@@ -1,4 +1,4 @@
-import { ReactNode, useState, useCallback, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useRef, useState, useEffect } from 'react'
 import TopBar from './TopBar'
 
 interface LevelLayoutProps {
@@ -11,81 +11,38 @@ interface LevelLayoutProps {
   onModeChange?: (mode: 'live' | 'replay') => void;
 }
 
-const MIN_LEFT = 220
-const MAX_LEFT = 480
-const MIN_RIGHT = 260
-const MAX_RIGHT = 560
-const DEFAULT_LEFT = 280
-const DEFAULT_RIGHT = 340
+const MIN_LEFT = 200
+const MAX_LEFT = 400
+const MIN_RIGHT = 300
 const STORAGE_KEY = 'agent-quest-panel-sizes'
 
-function loadSizes(): { left: number; right: number } {
+function loadSizes(): { leftW: number; rightRatio: number } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw)
+      const p = JSON.parse(raw)
       return {
-        left: Math.min(MAX_LEFT, Math.max(MIN_LEFT, parsed.left || DEFAULT_LEFT)),
-        right: Math.min(MAX_RIGHT, Math.max(MIN_RIGHT, parsed.right || DEFAULT_RIGHT)),
+        leftW: Math.min(MAX_LEFT, Math.max(MIN_LEFT, p.leftW || 260)),
+        rightRatio: p.rightRatio || 0.5,
       }
     }
-  } catch { /* ignore */ }
-  return { left: DEFAULT_LEFT, right: DEFAULT_RIGHT }
+  } catch { /* */ }
+  return { leftW: 260, rightRatio: 0.5 }
 }
 
-function saveSizes(left: number, right: number) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ left, right }))
-  } catch { /* ignore */ }
+function saveSizes(leftW: number, rightRatio: number) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ leftW, rightRatio })) } catch { /* */ }
 }
 
 function Resizer({
-  panelRef,
-  minSize,
-  maxSize,
-  initialSize,
-  onResizeEnd,
+  onMouseDown,
 }: {
-  panelRef: React.RefObject<HTMLDivElement | null>;
-  minSize: number;
-  maxSize: number;
-  initialSize: number;
-  onResizeEnd: (finalSize: number) => void;
+  onMouseDown: (e: React.MouseEvent) => void;
 }) {
-  const currentSize = useRef(initialSize)
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    const startX = e.clientX
-    const startW = panelRef.current?.offsetWidth ?? currentSize.current
-
-    const handleMouseMove = (ev: MouseEvent) => {
-      const delta = ev.clientX - startX
-      const newW = Math.min(maxSize, Math.max(minSize, startW + delta))
-      currentSize.current = newW
-      if (panelRef.current) {
-        panelRef.current.style.width = `${newW}px`
-      }
-    }
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      onResizeEnd(currentSize.current)
-    }
-
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-  }, [panelRef, minSize, maxSize, onResizeEnd])
-
   return (
     <div
-      onMouseDown={handleMouseDown}
-      className="w-[5px] shrink-0 cursor-col-resize hover:bg-[#5E6AD2]/40 active:bg-[#5E6AD2]/60 transition-colors duration-150 relative group z-10"
+      onMouseDown={onMouseDown}
+      className="w-[5px] shrink-0 cursor-col-resize hover:bg-[#5E6AD2]/40 active:bg-[#5E6AD2]/60 transition-colors relative z-10"
     >
       <div className="absolute inset-y-0 -left-1 -right-1" />
     </div>
@@ -93,71 +50,86 @@ function Resizer({
 }
 
 export default function LevelLayout({
-  title,
-  levelNumber,
-  conceptCard,
-  simulation,
-  pipeline,
-  mode,
-  onModeChange,
+  title, levelNumber, conceptCard, simulation, pipeline, mode, onModeChange,
 }: LevelLayoutProps) {
-  const leftRef = useRef<HTMLDivElement>(null)
-  const rightRef = useRef<HTMLDivElement>(null)
-  const [leftWidth, setLeftWidth] = useState(() => loadSizes().left)
-  const [rightWidth, setRightWidth] = useState(() => loadSizes().right)
+  const [leftW, setLeftW] = useState(() => loadSizes().leftW)
+  const [rightRatio, setRightRatio] = useState(() => loadSizes().rightRatio)
+  const containerRef = useRef<HTMLDivElement>(null)
 
-  const handleLeftResizeEnd = useCallback((finalSize: number) => {
-    setLeftWidth(finalSize)
-    saveSizes(finalSize, rightWidth)
-  }, [rightWidth])
+  // Left resizer: drag right → left panel grows
+  const onLeftMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = leftW
+    const mm = (ev: MouseEvent) => {
+      const delta = ev.clientX - startX
+      const w = Math.min(MAX_LEFT, Math.max(MIN_LEFT, startW + delta))
+      setLeftW(w)
+      saveSizes(w, rightRatio)
+    }
+    const mu = () => {
+      document.removeEventListener('mousemove', mm)
+      document.removeEventListener('mouseup', mu)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', mm)
+    document.addEventListener('mouseup', mu)
+  }, [leftW, rightRatio])
 
-  const handleRightResizeEnd = useCallback((finalSize: number) => {
-    setRightWidth(finalSize)
-    saveSizes(leftWidth, finalSize)
-  }, [leftWidth])
+  // Right resizer: drag left → right panel GROWS (inverse relationship)
+  const onRightMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const containerW = containerRef.current?.offsetWidth ?? 1200
+    const startX = e.clientX
+    const startRatio = rightRatio
+    const mm = (ev: MouseEvent) => {
+      // dragging LEFT means right panel grows → ratio increases
+      const deltaPx = startX - ev.clientX
+      const deltaRatio = deltaPx / containerW
+      const r = Math.min(0.65, Math.max(0.3, startRatio + deltaRatio))
+      setRightRatio(r)
+      saveSizes(leftW, r)
+    }
+    const mu = () => {
+      document.removeEventListener('mousemove', mm)
+      document.removeEventListener('mouseup', mu)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', mm)
+    document.addEventListener('mouseup', mu)
+  }, [leftW, rightRatio])
 
   return (
     <div className="h-screen flex flex-col bg-[#FAFAFA]">
       <TopBar title={title} levelNumber={levelNumber} mode={mode} onModeChange={onModeChange} />
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: Concept card */}
-        <div
-          ref={leftRef}
-          className="shrink-0 overflow-y-auto p-4"
-          style={{ width: leftWidth }}
-        >
+      <div ref={containerRef} className="flex-1 flex overflow-hidden">
+        {/* Left: Concept */}
+        <div className="shrink-0 overflow-y-auto p-4" style={{ width: leftW }}>
           {conceptCard}
         </div>
 
-        <Resizer
-          panelRef={leftRef}
-          minSize={MIN_LEFT}
-          maxSize={MAX_LEFT}
-          initialSize={leftWidth}
-          onResizeEnd={handleLeftResizeEnd}
-        />
+        <Resizer onMouseDown={onLeftMouseDown} />
 
-        {/* Center: Simulation */}
-        <div className="flex-1 overflow-y-auto p-6 min-w-0">
-          {simulation}
-        </div>
+        {/* Center + Right: flex split */}
+        <div className="flex-1 flex overflow-hidden min-w-0">
+          {/* Center: Chat */}
+          <div className="overflow-y-auto p-6 min-w-0" style={{ width: `${(1 - rightRatio) * 100}%` }}>
+            {simulation}
+          </div>
 
-        <Resizer
-          panelRef={rightRef}
-          minSize={MIN_RIGHT}
-          maxSize={MAX_RIGHT}
-          initialSize={rightWidth}
-          onResizeEnd={handleRightResizeEnd}
-        />
+          <Resizer onMouseDown={onRightMouseDown} />
 
-        {/* Right: Pipeline */}
-        <div
-          ref={rightRef}
-          className="shrink-0 overflow-y-auto p-4"
-          style={{ width: rightWidth }}
-        >
-          {pipeline}
+          {/* Right: Pipeline */}
+          <div className="overflow-y-auto p-4 min-w-0" style={{ width: `${rightRatio * 100}%`, minWidth: MIN_RIGHT }}>
+            {pipeline}
+          </div>
         </div>
       </div>
     </div>
