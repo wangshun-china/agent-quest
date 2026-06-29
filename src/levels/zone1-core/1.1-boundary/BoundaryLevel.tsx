@@ -60,7 +60,7 @@ export default function BoundaryLevel() {
   const completeLevel = useProgressStore((s) => s.completeLevel)
   const apiKey = useConfigStore((s) => s.apiKey)
   const { addEvent, clearEvents } = useTraceStore()
-  const { pushContext, pushMemory, reset: resetCM } = useContextMemoryStore()
+  const { pushContext, pushMemory, setRetrievedMemory, reset: resetCM } = useContextMemoryStore()
 
   const [mode, setMode] = useState<'live' | 'replay'>('replay')
   const [chat, setChat] = useState<ChatMsg[]>([])
@@ -135,13 +135,19 @@ export default function BoundaryLevel() {
     // Boot context (only first message in this conversation)
     if (chat.length === 0) {
       clearEvents(); resetCM() // new conversation → clear old trace
+      // Memory retrieval (pre-run)
+      setRetrievedMemory(`检索 working_memory.md: 无（首次运行）
+检索 structured memory (MemoryRetriever.search): 无匹配条目
+memory 注入为 harness context item (kind="relevant_memory", priority=3)`)
+      pushMemory({ type: 'retrieval', content: '无历史记忆，首次运行。后续 observation 将写入 memory。', id: '', timestamp: Date.now() })
+
       addEvent(createTraceEvent('system_context', 'System Prompt', {
         system_contract: SYSTEM_PROMPT,
         protocol: 'native_function_calling', parallel: false, version: 'system_contract.v2',
       }, 'build_system_contract_event() 来自 prompt_layer.py'))
       addEvent(createTraceEvent('tools_schema', 'Tool Registry (TOOL_REGISTRY)', {
         tools: TOOLS.map(t => `${t.name} [${t.risk}] → ${t.effects}`),
-      }, `共 ${TOOLS.length} 个工具，来自 tools.py。inspect/safe → 免审批，edit/medium → 审批，execute/high → 严格审批`))
+      }, `共 ${TOOLS.length} 个工具，来自 tools.py`))
     }
 
     addEvent(createTraceEvent('user_message', `用户输入`, {
@@ -265,17 +271,26 @@ export default function BoundaryLevel() {
 
         // Update Context & Memory store
         const totalToks = Number(usage?.total_tokens) || 0
+        const sysCount = apiMessages.filter((m: {role:string}) => m.role === 'system').length
+        const usrCount = apiMessages.filter((m: {role:string}) => m.role === 'user').length
+        const asstCount = apiMessages.filter((m: {role:string}) => m.role === 'assistant').length
+        const toolCount = apiMessages.filter((m: {role:string}) => m.role === 'tool').length
         pushContext({
+          step: round,
           totalMessages: apiMessages.length,
-          systemTokens: 150, userTokens: Math.floor(totalToks * 0.3),
-          assistantTokens: Math.floor(totalToks * 0.3),
-          toolResultTokens: Math.floor(totalToks * 0.2),
-          totalTokens: totalToks, contextWindow: 8000,
-          usagePercent: Math.round((totalToks / 8000) * 100), compacted: false,
+          messageBreakdown: { system: sysCount, user: usrCount, assistant: asstCount, tool: toolCount },
+          inputTokens: totalToks,
+          outputTokens: 0,
+          usableTokens: 8000 - totalToks,
+          contextWindow: 8000,
+          usageRatio: Math.round((totalToks / 8000) * 100),
+          compacted: false,
+          omittedGroups: 0,
+          messageSummary: apiMessages.map((m: {role:string; content?:string}) => `${m.role}: ${(m.content || '(tool_calls)').slice(0, 60)}`),
         })
-        pushMemory({ type: 'observation', content: `${toolName}: ${toolResult.slice(0, 120)}`, timestamp: Date.now(), id: '' })
+        pushMemory({ type: 'observation', content: `${toolName}: ${toolResult.slice(0, 120)}`, id: '', timestamp: Date.now() })
         if (toolName === 'list_files' || toolName === 'read_file' || toolName === 'find_files') {
-          pushMemory({ type: 'file_state', content: `${toolName} → ${toolResult.slice(0, 100)}`, timestamp: Date.now(), id: '' })
+          pushMemory({ type: 'file_state', content: `${toolName} → ${toolResult.slice(0, 100)}`, id: '', timestamp: Date.now() })
         }
 
         // Show in chat

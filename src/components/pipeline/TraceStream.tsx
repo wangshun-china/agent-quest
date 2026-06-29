@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useTraceStore, type TraceEvent } from '../../store/traceStore'
-import { useContextMemoryStore } from '../../store/contextMemoryStore'
+import { useContextMemoryStore, type ContextSnap, type MemoryEntry } from '../../store/contextMemoryStore'
 
 const TYPE_META: Record<string, { icon: string; bg: string; border: string; label: string }> = {
   system_context:  { icon: '📋', bg: 'bg-[#F2F3F8]', border: 'border-[#787F95]/20', label: 'System' },
@@ -17,205 +17,145 @@ const TYPE_META: Record<string, { icon: string; bg: string; border: string; labe
   error:           { icon: '❌', bg: 'bg-[#FFF5F5]',   border: 'border-[#D23B3B]/20', label: 'Error' },
 }
 
-// ── Event card (full content on expand) ──
-function EventRow({ event }: { event: TraceEvent }) {
+function EventRow({ event, contextSnap, memoryBadge }: { event: TraceEvent; contextSnap?: ContextSnap; memoryBadge?: 'retrieve' | 'update' }) {
   const meta = TYPE_META[event.type] || { icon: '•', bg: 'bg-white', border: 'border-[#E5E5E5]', label: event.type }
   const [expanded, setExpanded] = useState(false)
+  const [showCtx, setShowCtx] = useState(false)
+  const [showMem, setShowMem] = useState(false)
+  const { contextSnaps, memoryEntries, retrievedMemory } = useContextMemoryStore()
   const hasData = Object.keys(event.data).length > 0
 
-  const kvPairs = Object.entries(event.data).map(([k, v]) => {
-    return { key: k, value: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }
-  })
+  const kvPairs = Object.entries(event.data).map(([k, v]) => ({
+    key: k, value: typeof v === 'string' ? v : JSON.stringify(v, null, 2),
+  }))
 
   return (
     <div className={`rounded-lg border ${meta.border} ${meta.bg} overflow-hidden text-xs`}>
-      <button
-        onClick={() => hasData && setExpanded(!expanded)}
-        className={`w-full flex items-center gap-2 px-3 py-2 text-left ${hasData ? 'cursor-pointer hover:opacity-80' : ''}`}
-      >
-        <span className="text-sm shrink-0">{meta.icon}</span>
-        <span className="text-[#6B6B6B] text-[10px] font-medium uppercase shrink-0 w-14">{meta.label}</span>
-        <span className="text-[#1A1A1A] truncate">{event.label}</span>
-        {hasData && <span className="ml-auto text-[#9B9B9B] text-[10px] shrink-0">{expanded ? '▴' : '▾'}</span>}
-      </button>
+      <div className="flex items-center">
+        <button
+          onClick={() => hasData && setExpanded(!expanded)}
+          className={`flex-1 flex items-center gap-2 px-3 py-2 text-left min-w-0 ${hasData ? 'cursor-pointer hover:opacity-80' : ''}`}
+        >
+          <span className="text-sm shrink-0">{meta.icon}</span>
+          <span className="text-[#6B6B6B] text-[10px] font-medium uppercase shrink-0 w-14">{meta.label}</span>
+          <span className="text-[#1A1A1A] truncate">{event.label}</span>
+          {hasData && <span className="ml-auto text-[#9B9B9B] text-[10px] shrink-0">{expanded ? '▴' : '▾'}</span>}
+        </button>
 
+        {/* Context badge */}
+        {contextSnap && (
+          <button
+            onClick={() => setShowCtx(!showCtx)}
+            className="shrink-0 px-2 py-1 mr-1 rounded text-[10px] bg-[#5E6AD2]/8 text-[#5E6AD2] font-medium hover:bg-[#5E6AD2]/15 transition-colors"
+          >
+            📊 {contextSnap.totalMessages}msg/{contextSnap.usageRatio}%
+          </button>
+        )}
+
+        {/* Memory badge */}
+        {memoryBadge && (
+          <button
+            onClick={() => setShowMem(!showMem)}
+            className={`shrink-0 px-2 py-1 mr-1 rounded text-[10px] font-medium transition-colors ${
+              memoryBadge === 'retrieve'
+                ? 'bg-[#D48C20]/8 text-[#D48C20] hover:bg-[#D48C20]/15'
+                : 'bg-[#2DA44E]/8 text-[#2DA44E] hover:bg-[#2DA44E]/15'
+            }`}
+          >
+            📝 {memoryBadge === 'retrieve' ? '检索' : '更新'}
+          </button>
+        )}
+      </div>
+
+      {/* Event data */}
       {expanded && hasData && (
         <div className="px-3 pb-2.5 space-y-2 border-t border-[#00000008] pt-2">
-          {event.detail && (
-            <div className="text-[#6B6B6B] leading-relaxed text-[11px]">{event.detail}</div>
-          )}
+          {event.detail && <div className="text-[#6B6B6B] text-[11px]">{event.detail}</div>}
           {kvPairs.map(({ key, value }) => (
             <div key={key}>
               <div className="text-[#9B9B9B] font-medium text-[10px] mb-0.5">{key}</div>
-              <pre className="text-[#1A1A1A] font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all bg-[#00000004] rounded p-2 max-h-80 overflow-y-auto">
-                {value}
-              </pre>
+              <pre className="text-[#1A1A1A] font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all bg-[#00000004] rounded p-2 max-h-80 overflow-y-auto">{value}</pre>
             </div>
           ))}
         </div>
       )}
+
+      {/* Context popup */}
+      <AnimatePresence>
+        {showCtx && contextSnap && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-[#5E6AD2]/15">
+            <div className="px-3 py-2.5 space-y-2 bg-[#5E6AD2]/[0.03]">
+              <div className="text-[10px] font-semibold text-[#5E6AD2] uppercase">Context 上下文状态</div>
+              <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                <div className="bg-white rounded p-1.5"><span className="text-[#9B9B9B]">Messages</span><div className="font-mono font-medium">{contextSnap.totalMessages}</div></div>
+                <div className="bg-white rounded p-1.5"><span className="text-[#9B9B9B]">Total Tokens</span><div className="font-mono font-medium">{contextSnap.inputTokens + contextSnap.outputTokens}</div></div>
+                <div className="bg-white rounded p-1.5"><span className="text-[#9B9B9B]">Usable</span><div className="font-mono font-medium">{contextSnap.usableTokens}</div></div>
+                <div className="bg-white rounded p-1.5"><span className="text-[#9B9B9B]">Window</span><div className="font-mono font-medium">{contextSnap.contextWindow}</div></div>
+              </div>
+              <div>
+                <div className="flex justify-between text-[9px] text-[#9B9B9B] mb-0.5"><span>0</span><span>{contextSnap.contextWindow}</span></div>
+                <div className="h-1.5 bg-[#E5E5E5] rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${contextSnap.usageRatio > 80 ? 'bg-[#D48C20]' : 'bg-[#5E6AD2]'}`}
+                    style={{ width: `${Math.min(contextSnap.usageRatio, 100)}%` }} />
+                </div>
+                <div className="flex justify-between text-[9px] mt-0.5 text-[#9B9B9B]">
+                  <span>sys:{contextSnap.messageBreakdown.system}</span><span>usr:{contextSnap.messageBreakdown.user}</span><span>asst:{contextSnap.messageBreakdown.assistant}</span><span>tool:{contextSnap.messageBreakdown.tool}</span>
+                </div>
+              </div>
+              {contextSnap.compacted && <div className="text-[10px] text-[#D48C20] bg-[#D48C20]/10 rounded px-2 py-1">⚠ auto-compacted: {contextSnap.omittedGroups} groups omitted</div>}
+              <div className="text-[10px] text-[#9B9B9B]">每次 model request 前 ContextBuilder 按优先级组装 messages，超出 CONTEXT_WARNING_RATIO=0.8 时自动 compact</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Memory popup */}
+      <AnimatePresence>
+        {showMem && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-[#D48C20]/15">
+            <div className="px-3 py-2.5 space-y-2 bg-[#D48C20]/[0.03]">
+              {memoryBadge === 'retrieve' && retrievedMemory && (
+                <>
+                  <div className="text-[10px] font-semibold text-[#D48C20] uppercase">Memory 检索结果（对话前）</div>
+                  <pre className="text-[11px] text-[#1A1A1A] font-mono leading-relaxed whitespace-pre-wrap bg-white rounded p-2 max-h-60 overflow-y-auto">{retrievedMemory}</pre>
+                  <div className="text-[10px] text-[#9B9B9B]">执行前检索 working_memory + structured memory (MemoryRetriever.search)</div>
+                </>
+              )}
+              {memoryBadge === 'update' && (
+                <>
+                  <div className="text-[10px] font-semibold text-[#2DA44E] uppercase">Memory 更新（对话后）</div>
+                  <div className="text-[10px] font-medium text-[#1A1A1A]">本次新增: {memoryEntries.filter(m => m.type !== 'retrieval').length} 条</div>
+                  {memoryEntries.filter(m => m.type !== 'retrieval').map(m => (
+                    <div key={m.id} className="bg-white rounded p-1.5">
+                      <span className="text-[9px] px-1 rounded font-medium bg-[#2DA44E]/10 text-[#2DA44E]">{m.type}</span>
+                      <div className="text-[11px] mt-0.5">{m.content}</div>
+                    </div>
+                  ))}
+                  <div className="text-[10px] text-[#9B9B9B]">update_working_memory() + write_run_memories() 在每次 run 结束时写入</div>
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
-// ── Context & Memory Panel ──
-function ContextMemoryPanel() {
-  const { contextHistory, memoryEntries } = useContextMemoryStore()
-  const latest = contextHistory[contextHistory.length - 1]
-  const [tab, setTab] = useState<'context' | 'memory'>('context')
-  const [collapsed, setCollapsed] = useState(false)
-
-  if (contextHistory.length === 0) return null
-
-  return (
-    <div className="border border-[#E5E5E5] rounded-xl overflow-hidden mb-3 bg-white shrink-0">
-      <div className="flex items-center border-b border-[#E5E5E5]">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex-1 flex items-center gap-2 px-3 py-2 hover:bg-[#FAFAFA] transition-colors"
-        >
-          <span className="text-xs">🧠</span>
-          <span className="text-xs font-medium text-[#1A1A1A]">Context & Memory</span>
-          {latest && (
-            <span className="text-[10px] text-[#9B9B9B] ml-auto">
-              {latest.totalMessages}msg · {latest.usagePercent}%
-            </span>
-          )}
-          <span className="text-[10px] text-[#9B9B9B]">{collapsed ? '▸' : '▾'}</span>
-        </button>
-      </div>
-
-      {!collapsed && (
-        <>
-          {/* Tabs */}
-          <div className="flex border-b border-[#E5E5E5]">
-            <button
-              onClick={() => setTab('context')}
-              className={`flex-1 text-[11px] py-1.5 font-medium transition-colors ${tab === 'context' ? 'text-[#5E6AD2] border-b-2 border-[#5E6AD2]' : 'text-[#9B9B9B] hover:text-[#6B6B6B]'}`}
-            >
-              上下文
-            </button>
-            <button
-              onClick={() => setTab('memory')}
-              className={`flex-1 text-[11px] py-1.5 font-medium transition-colors ${tab === 'memory' ? 'text-[#5E6AD2] border-b-2 border-[#5E6AD2]' : 'text-[#9B9B9B] hover:text-[#6B6B6B]'}`}
-            >
-              记忆 ({memoryEntries.length})
-            </button>
-          </div>
-
-          <div className="max-h-64 overflow-y-auto">
-            {tab === 'context' && (
-              <div className="p-3 space-y-2">
-                {latest ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-2 text-[10px]">
-                      <div className="bg-[#F8F8F8] rounded p-2">
-                        <div className="text-[#9B9B9B]">Messages</div>
-                        <div className="text-[#1A1A1A] font-mono font-medium mt-0.5">{latest.totalMessages}</div>
-                      </div>
-                      <div className="bg-[#F8F8F8] rounded p-2">
-                        <div className="text-[#9B9B9B]">Total Tokens</div>
-                        <div className="text-[#1A1A1A] font-mono font-medium mt-0.5">{latest.totalTokens}</div>
-                      </div>
-                      <div className="bg-[#F8F8F8] rounded p-2">
-                        <div className="text-[#9B9B9B]">Context Window</div>
-                        <div className="text-[#1A1A1A] font-mono font-medium mt-0.5">{latest.contextWindow}</div>
-                      </div>
-                      <div className="bg-[#F8F8F8] rounded p-2">
-                        <div className="text-[#9B9B9B]">使用率</div>
-                        <div className={`font-mono font-medium mt-0.5 ${latest.usagePercent > 80 ? 'text-[#D48C20]' : 'text-[#2DA44E]'}`}>{latest.usagePercent}%</div>
-                      </div>
-                    </div>
-                    {/* Progress bar */}
-                    <div>
-                      <div className="flex justify-between text-[10px] text-[#9B9B9B] mb-0.5">
-                        <span>0</span>
-                        <span>{latest.contextWindow}</span>
-                      </div>
-                      <div className="h-2 bg-[#F0F0F0] rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${latest.usagePercent > 80 ? 'bg-[#D48C20]' : 'bg-[#5E6AD2]'}`}
-                          style={{ width: `${Math.min(latest.usagePercent, 100)}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[9px] mt-0.5">
-                        <span className="text-[#9B9B9B]">system: {latest.systemTokens}</span>
-                        <span className="text-[#9B9B9B]">user: {latest.userTokens}</span>
-                        <span className="text-[#9B9B9B]">assistant: {latest.assistantTokens}</span>
-                        <span className="text-[#9B9B9B]">tool: {latest.toolResultTokens}</span>
-                      </div>
-                    </div>
-                    {/* Context history list */}
-                    {contextHistory.length > 1 && (
-                      <div className="mt-2 pt-2 border-t border-[#E5E5E5]">
-                        <div className="text-[10px] text-[#9B9B9B] mb-1">上下文演变</div>
-                        {contextHistory.map((c, i) => (
-                          <div key={i} className="flex items-center gap-2 text-[10px] py-0.5">
-                            <span className="text-[#9B9B9B] font-mono">R{i + 1}</span>
-                            <span className="text-[#1A1A1A] font-mono">{c.totalMessages}msg</span>
-                            <span className="text-[#1A1A1A] font-mono">{c.totalTokens}tok</span>
-                            <span className={`font-mono ${c.usagePercent > 80 ? 'text-[#D48C20]' : 'text-[#9B9B9B]'}`}>{c.usagePercent}%</span>
-                            {c.compacted && <span className="text-[#2DA44E] text-[9px]">compacted</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-xs text-[#9B9B9B] p-2">等待对话开始…</div>
-                )}
-              </div>
-            )}
-
-            {tab === 'memory' && (
-              <div className="p-3 space-y-1.5">
-                {memoryEntries.length === 0 ? (
-                  <div className="text-xs text-[#9B9B9B] p-2">暂无记忆条目。每次 observation 会产生新的记忆。</div>
-                ) : (
-                  memoryEntries.map((entry) => (
-                    <div key={entry.id} className="bg-[#F8F8F8] rounded-lg p-2">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className={`text-[10px] px-1 py-0 rounded font-medium ${
-                          entry.type === 'observation' ? 'bg-[#2DA44E]/10 text-[#2DA44E]' :
-                          entry.type === 'file_state' ? 'bg-[#5E6AD2]/10 text-[#5E6AD2]' :
-                          entry.type === 'repo_fact' ? 'bg-[#D48C20]/10 text-[#D48C20]' :
-                          'bg-[#9B9B9B]/10 text-[#9B9B9B]'
-                        }`}>
-                          {entry.type}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-[#1A1A1A] leading-relaxed">{entry.content}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-// ── Replay view ──
+// ── Replay ──
 function ReplayView() {
   const { replaySteps, currentReplayStep, setReplayStep, exitReplay } = useTraceStore()
+  const { contextSnaps } = useContextMemoryStore()
   const [playing, setPlaying] = useState(false)
   const timerRef = useRef<number | null>(null)
 
-  const keyPoints = replaySteps
-    .map((step, i) => {
-      const hasTool = step.some(e => e.type === 'model_response' && e.label.includes('tool_call'))
-      const hasDeny = step.some(e => e.type === 'policy_check' && e.label.includes('DENY'))
-      const hasCompletion = step.some(e => e.type === 'completion')
-      return { index: i, hasTool, hasDeny, hasCompletion }
-    })
-    .filter(kp => kp.hasTool || kp.hasDeny || kp.hasCompletion)
+  const keyPoints = replaySteps.map((step, i) => {
+    const hasTool = step.some(e => e.type === 'model_response' && e.label.includes('tool_call'))
+    const hasCompletion = step.some(e => e.type === 'completion')
+    return { index: i, hasTool, hasCompletion }
+  }).filter(kp => kp.hasTool || kp.hasCompletion)
 
-  const play = () => {
-    if (currentReplayStep >= replaySteps.length - 1) setReplayStep(0)
-    setPlaying(true)
-  }
+  const play = () => { if (currentReplayStep >= replaySteps.length - 1) setReplayStep(0); setPlaying(true) }
 
   useEffect(() => {
     if (playing && currentReplayStep < replaySteps.length - 1) {
@@ -229,10 +169,8 @@ function ReplayView() {
       <div className="flex items-center justify-between mb-3 shrink-0">
         <span className="text-xs font-medium text-[#1A1A1A]">回放 · {replaySteps.length} 步</span>
         <div className="flex gap-1">
-          {playing
-            ? <button onClick={() => setPlaying(false)} className="text-[10px] px-2 py-0.5 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5]">⏸</button>
-            : <button onClick={play} className="text-[10px] px-2 py-0.5 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5]">▶</button>
-          }
+          {playing ? <button onClick={() => setPlaying(false)} className="text-[10px] px-2 py-0.5 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5]">⏸</button>
+            : <button onClick={play} className="text-[10px] px-2 py-0.5 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5]">▶</button>}
           <button onClick={exitReplay} className="text-[10px] px-2 py-0.5 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5]">← 实时</button>
         </div>
       </div>
@@ -243,34 +181,32 @@ function ReplayView() {
         {keyPoints.map(kp => (
           <div key={kp.index} className="absolute top-1.5 w-5 h-5 rounded-full bg-white border-2 transition-colors cursor-pointer"
             style={{ left: `${((kp.index + 0.5) / replaySteps.length) * 100}%`, transform: 'translateX(-50%)',
-              borderColor: kp.hasCompletion ? '#2DA44E' : kp.hasDeny ? '#D23B3B' : '#5E6AD2',
-              backgroundColor: currentReplayStep >= kp.index ? (kp.hasCompletion ? '#2DA44E' : kp.hasDeny ? '#D23B3B' : '#5E6AD2') : 'white' }}
-            onClick={() => setReplayStep(kp.index)}
-          >
-            <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-[#9B9B9B] whitespace-nowrap">
-              {kp.hasCompletion ? '✓' : kp.hasDeny ? '✕' : '🔧'}
-            </div>
+              borderColor: kp.hasCompletion ? '#2DA44E' : '#5E6AD2',
+              backgroundColor: currentReplayStep >= kp.index ? (kp.hasCompletion ? '#2DA44E' : '#5E6AD2') : 'white' }}
+            onClick={() => setReplayStep(kp.index)}>
+            <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-[#9B9B9B] whitespace-nowrap">{kp.hasCompletion ? '✓' : '🔧'}</div>
           </div>
         ))}
       </div>
 
-      <ContextMemoryPanel />
-
       <div className="flex-1 overflow-y-auto space-y-3">
-        {replaySteps.map((step, si) => (
-          <div key={si} className={`rounded-xl border overflow-hidden transition-all ${si === currentReplayStep ? 'border-[#5E6AD2] shadow-sm' : 'border-[#E5E5E5] opacity-60'}`}>
-            <button onClick={() => setReplayStep(si)} className="w-full flex items-center gap-2 px-3 py-2 bg-[#FAFAFA] border-b border-[#E5E5E5]">
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${si === currentReplayStep ? 'bg-[#5E6AD2]' : 'bg-[#D0D0D0]'}`}>{si + 1}</span>
-              <span className="text-xs font-medium text-[#1A1A1A]">Step {si + 1}</span>
-              {step.some(e => e.type === 'completion') && <span className="ml-auto text-[10px] text-[#2DA44E] font-medium">完成</span>}
-            </button>
-            {si === currentReplayStep && (
-              <div className="p-2 space-y-1.5">
-                {step.map(evt => <EventRow key={evt.id} event={evt} />)}
-              </div>
-            )}
-          </div>
-        ))}
+        {replaySteps.map((step, si) => {
+          const ctxSnap = contextSnaps[si]
+          return (
+            <div key={si} className={`rounded-xl border overflow-hidden transition-all ${si === currentReplayStep ? 'border-[#5E6AD2] shadow-sm' : 'border-[#E5E5E5] opacity-60'}`}>
+              <button onClick={() => setReplayStep(si)} className="w-full flex items-center gap-2 px-3 py-2 bg-[#FAFAFA] border-b border-[#E5E5E5]">
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${si === currentReplayStep ? 'bg-[#5E6AD2]' : 'bg-[#D0D0D0]'}`}>{si + 1}</span>
+                <span className="text-xs font-medium">Step {si + 1}</span>
+                {ctxSnap && <span className="text-[10px] text-[#9B9B9B] font-mono ml-auto">{ctxSnap.totalMessages}msg</span>}
+              </button>
+              {si === currentReplayStep && (
+                <div className="p-2 space-y-1.5">
+                  {step.map(evt => <EventRow key={evt.id} event={evt} contextSnap={evt.type === 'model_request' ? ctxSnap : undefined} />)}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -279,7 +215,9 @@ function ReplayView() {
 // ── Live view ──
 export default function TraceStream() {
   const { events, replayMode, startReplay, clearEvents } = useTraceStore()
+  const { contextSnaps, memoryEntries, retrievedMemory } = useContextMemoryStore()
   const endRef = useRef<HTMLDivElement>(null)
+  const [showStartMem, setShowStartMem] = useState(false)
 
   useEffect(() => {
     if (!replayMode) endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -299,22 +237,64 @@ export default function TraceStream() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-2 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-[#D23B3B] animate-pulse" />
-          <span className="text-xs font-medium text-[#1A1A1A]">实时 · {events.length} 事件</span>
-        </div>
+        <span className="text-xs font-medium text-[#1A1A1A]">🔴 实时 · {events.length} 事件</span>
         <div className="flex gap-1">
-          <button onClick={startReplay} className="text-[10px] px-2 py-1 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5] hover:border-[#5E6AD2] text-[#5E6AD2] font-medium transition-colors">▶ 回放</button>
-          <button onClick={clearEvents} className="text-[10px] px-2 py-1 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5] text-[#9B9B9B] transition-colors">清除</button>
+          <button onClick={startReplay} className="text-[10px] px-2 py-1 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5] hover:border-[#5E6AD2] text-[#5E6AD2] font-medium">▶ 回放</button>
+          <button onClick={clearEvents} className="text-[10px] px-2 py-1 rounded border border-[#E5E5E5] hover:bg-[#F5F5F5] text-[#9B9B9B]">清除</button>
         </div>
       </div>
 
-      {/* Context & Memory panel — persists across the stream */}
-      <ContextMemoryPanel />
+      {/* Pre-run memory retrieval badge */}
+      {retrievedMemory && (
+        <div className="mb-2 p-2 rounded-lg border border-[#D48C20]/20 bg-[#D48C20]/[0.03]">
+          <button onClick={() => setShowStartMem(!showStartMem)} className="w-full flex items-center gap-2 text-left">
+            <span className="text-xs">📝</span>
+            <span className="text-xs font-medium text-[#1A1A1A]">Memory 检索</span>
+            <span className="text-[10px] text-[#9B9B9B] ml-auto">run 开始前</span>
+            <span className="text-[10px]">{showStartMem ? '▴' : '▾'}</span>
+          </button>
+          <AnimatePresence>
+            {showStartMem && (
+              <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden">
+                <pre className="text-[11px] text-[#1A1A1A] font-mono leading-relaxed whitespace-pre-wrap bg-white rounded p-2 mt-2 max-h-40 overflow-y-auto">{retrievedMemory}</pre>
+                <div className="text-[10px] text-[#9B9B9B] mt-1">search_relevant_memory() + MemoryRetriever.search() 在每次 run 开始前检索 session working_memory 和 structured memory</div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
 
-      {/* Event stream */}
+      {/* Event stream with inline context/memory badges */}
       <div className="flex-1 overflow-y-auto space-y-1.5 pr-0.5">
-        {events.map(evt => <EventRow key={evt.id} event={evt} />)}
+        {events.map((evt, i) => {
+          const ctxIdx = contextSnaps.findIndex(c => events.indexOf(evt) >= events.findIndex(e => e.type === 'model_request' && e.label.includes(`Round ${c.step}`)))
+          const ctxSnap = evt.type === 'model_request'
+            ? contextSnaps.find(c => {
+                const reqIdx = events.indexOf(evt)
+                // Find context snap whose step matches the event position
+                const matchEvt = events.find(e => e.type === 'model_request' && e.label.includes(`Round ${c.step}`))
+                return matchEvt === evt
+              })
+            : undefined
+
+          // Simpler approach: just pick context snap by index
+          const reqEvts = events.filter(e => e.type === 'model_request')
+          const reqIdx = reqEvts.indexOf(evt)
+          const contextForThis = evt.type === 'model_request' && reqIdx >= 0 ? contextSnaps[reqIdx] : undefined
+
+          // Memory: check for "retrieve" badge on first user_message, "update" on completion
+          const isFirstUser = evt.type === 'user_message' && events.filter(e => e.type === 'user_message').indexOf(evt) === 0
+          const isCompletion = evt.type === 'completion'
+
+          return (
+            <EventRow
+              key={evt.id}
+              event={evt}
+              contextSnap={contextForThis}
+              memoryBadge={isFirstUser ? 'retrieve' : isCompletion ? 'update' : undefined}
+            />
+          )
+        })}
         <div ref={endRef} />
       </div>
     </div>

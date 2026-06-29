@@ -1,54 +1,57 @@
 import { create } from 'zustand'
 
-export interface ContextSnapshot {
+export interface ContextSnap {
+  step: number;
   totalMessages: number;
-  systemTokens: number;
-  userTokens: number;
-  assistantTokens: number;
-  toolResultTokens: number;
-  totalTokens: number;
+  messageBreakdown: { system: number; user: number; assistant: number; tool: number };
+  inputTokens: number;
+  outputTokens: number;
+  usableTokens: number;
   contextWindow: number;
-  usagePercent: number;
+  usageRatio: number;
   compacted: boolean;
+  omittedGroups: number;
+  // Full message summary for this step
+  messageSummary: string[];
 }
 
 export interface MemoryEntry {
   id: string;
-  type: 'observation' | 'file_state' | 'repo_fact' | 'working';
+  type: 'retrieval' | 'observation' | 'file_state' | 'working_update';
   content: string;
   timestamp: number;
 }
 
-interface ContextMemoryState {
-  // Context
-  contextHistory: ContextSnapshot[];
-
-  // Memory
+interface CMState {
+  contextSnaps: ContextSnap[];
   memoryEntries: MemoryEntry[];
+  // Pre-run memory retrieval
+  retrievedMemory: string | null;
 
-  // Actions
-  pushContext: (snap: ContextSnapshot) => void;
+  pushContext: (snap: ContextSnap) => void;
   pushMemory: (entry: MemoryEntry) => void;
+  setRetrievedMemory: (content: string | null) => void;
   reset: () => void;
 }
 
 let _memId = 0
 
-export const useContextMemoryStore = create<ContextMemoryState>()((set) => ({
-  contextHistory: [],
+export const useContextMemoryStore = create<CMState>()((set) => ({
+  contextSnaps: [],
   memoryEntries: [],
+  retrievedMemory: null,
 
   pushContext: (snap) => set((s) => ({
-    contextHistory: [...s.contextHistory, snap],
+    contextSnaps: [...s.contextSnaps, snap],
   })),
 
   pushMemory: (entry) => {
     entry.id = `mem-${++_memId}`
     entry.timestamp = Date.now()
-    set((s) => ({
-      memoryEntries: [...s.memoryEntries, entry],
-    }))
+    set((s) => ({ memoryEntries: [...s.memoryEntries, entry] }))
   },
 
-  reset: () => { _memId = 0; set({ contextHistory: [], memoryEntries: [] }) },
+  setRetrievedMemory: (content) => set({ retrievedMemory: content }),
+
+  reset: () => { _memId = 0; set({ contextSnaps: [], memoryEntries: [], retrievedMemory: null }) },
 }))
