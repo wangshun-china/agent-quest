@@ -155,40 +155,105 @@ export default function ReactLoopLevel() {
 
     if (chat.length === 0) {
       clearEvents(); resetCM()
-      addEvent(createTraceEvent('system_context', 'System Prompt', { system_contract: SYSTEM_PROMPT }))
-      addEvent(createTraceEvent('tools_schema', 'Tool Registry', { tools: TOOLS.map(t => `${t.name} [${t.risk}]`) }))
+      setRetrievedMemory('检索 working_memory.md + structured memory (MemoryRetriever.search) → 无历史记忆')
+      addEvent(createTraceEvent('system_context', 'System Prompt', {
+        system_contract: SYSTEM_PROMPT,
+        protocol: 'native_function_calling', parallel: false, version: 'system_contract.v2',
+      }, 'build_system_contract_event() 来自 prompt_layer.py'))
+      addEvent(createTraceEvent('tools_schema', 'Tool Registry (TOOL_REGISTRY)', {
+        tools: TOOLS.map(t => `${t.name} [${t.risk}] → ${t.effects}`),
+      }, `共 ${TOOLS.length} 个工具，来自 tools.py`))
+      pushMemory({ type: 'retrieval', content: '无历史记忆，首次运行', id: '', timestamp: Date.now() })
     }
-    addEvent(createTraceEvent('user_message', `用户: ${text}`, { role: 'user' }))
+
+    addEvent(createTraceEvent('user_message', '用户输入', { role: 'user', content: text }))
     setChat(prev => [...prev, { role: 'user', content: text }])
 
-    try {
-      const config = useConfigStore.getState()
-      const res = await fetch(`${config.apiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
-        body: JSON.stringify({
-          model: config.model,
-          messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...chat.map(m => ({ role: m.role, content: m.content })), { role: 'user', content: text }],
-          tools: TOOLS.map(t => ({ type: 'function', function: { name: t.name, description: '', parameters: { type: 'object', properties: {} } } })),
-          tool_choice: 'auto',
-          parallel_tool_calls: false,
-        }),
-      })
-      const data = await res.json()
-      const msg = data.choices?.[0]?.message
-      if (msg?.tool_calls?.length) {
-        const tc = msg.tool_calls[0]
-        addEvent(createTraceEvent('model_response', `tool_call → ${tc.function.name}`, { finish_reason: 'tool_calls' }))
-        addEvent(createTraceEvent('observation', `结果`, { note: 'tool result' }))
-        setChat(prev => [...prev, { role: 'assistant', content: `${msg.content || ''}\n🔧 ${tc.function.name}(${tc.function.arguments})` }])
-      } else {
-        addEvent(createTraceEvent('model_response', `final`, { finish_reason: 'stop' }))
-        addEvent(createTraceEvent('completion', 'CompletionTracker: success', {}))
-        setChat(prev => [...prev, { role: 'assistant', content: msg?.content || '(空)' }])
+    // ── Agent Loop ──
+    const config = useConfigStore.getState()
+    const MAX_ROUNDS = 6
+    const apiMessages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; name?: string }[] = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      ...chat.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user', content: text },
+    ]
+
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      addEvent(createTraceEvent('model_request', `Round ${round}: POST chat/completions`, {
+        endpoint: config.apiBaseUrl, model: config.model,
+        messages: apiMessages.length, tools: TOOLS.length,
+      }, `ContextBuilder: ${apiMessages.length} 条消息 + ${TOOLS.length} 个工具`))
+
+      let data: Record<string, unknown>
+      try {
+        const res = await fetch(`${config.apiBaseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+          body: JSON.stringify({
+            model: config.model,
+            messages: apiMessages,
+            tools: TOOLS.map(t => ({ type: 'function', function: { name: t.name, description: t.desc || '', parameters: { type: 'object', properties: {} } } })),
+            tool_choice: 'auto', parallel_tool_calls: false,
+          }),
+        })
+        data = await res.json()
+        if ((data as Record<string, unknown>).error) throw new Error(String(((data as Record<string, unknown>).error as Record<string, string>)?.message || data))
+      } catch (e) { addEvent(createTraceEvent('error', 'API 调用失败', { error: String(e) })); setChat(p => [...p, { role: 'assistant', content: `❌ ${e}` }]); break }
+
+      const choices = (data as Record<string, unknown>).choices as Array<Record<string, unknown>> | undefined
+      const choice = choices?.[0]
+      const msg = choice?.message as Record<string, unknown> | undefined
+      const usage = (data as Record<string, unknown>).usage as Record<string, number> | undefined
+      const toolCalls = msg?.tool_calls as Array<Record<string, unknown>> | undefined
+
+      addEvent(createTraceEvent('model_response', `Round ${round}: ${toolCalls ? `tool_call → ${((toolCalls[0] as Record<string, unknown>)?.function as Record<string, string>)?.name || '?'}` : 'final'}`, {
+        finish_reason: choice?.finish_reason || '?',
+        tool_calls: toolCalls || null,
+        usage: usage ? { input: usage.prompt_tokens || 0, output: usage.completion_tokens || 0, total: usage.total_tokens || 0 } : null,
+      }))
+
+      if (toolCalls?.length) {
+        const tc = toolCalls[0] as Record<string, unknown>
+        const fn = tc.function as Record<string, string>
+        const toolName = fn.name || '?'
+        const toolArgs = fn.arguments || '{}'
+        const toolInfo = TOOLS.find(t => t.name === toolName)
+
+        addEvent(createTraceEvent('policy_check', `RuntimePolicy.check(${toolName})`, {
+          tool: toolName, risk: toolInfo?.risk || '?', effects: toolInfo?.effects || '?', outcome: 'allow',
+        }, `ToolSpec 风险=${toolInfo?.risk || '?'} → allow`))
+        addEvent(createTraceEvent('tool_execute', `ToolExecutor.execute(${toolName})`, {
+          name: toolName, args: toolArgs, duration_ms: Math.floor(Math.random() * 20) + 3,
+        }))
+        addEvent(createTraceEvent('observation', `Observation: ${toolName} 回传`, {
+          tool_call_id: tc.id || '?',
+        }, 'role=tool + tool_call_id 追加到 messages'))
+        addEvent(createTraceEvent('context_update', `Round ${round}: 上下文更新`, {
+          messages: apiMessages.length + 2,
+        }, 'assistant(tool_calls) + tool(call_id) → 循环继续'))
+
+        apiMessages.push({ role: 'assistant', content: (msg?.content as string) || '', tool_calls: [{ id: tc.id || `call_${round}`, type: 'function', function: { name: toolName, arguments: toolArgs } }] })
+        apiMessages.push({ role: 'tool', tool_call_id: String(tc.id || `call_${round}`), name: toolName, content: `OK — ${toolName} 执行成功` })
+        setChat(p => [...p, { role: 'assistant', content: `${msg?.content || ''}\n🔧 ${toolName}(${toolArgs})` }])
+
+        const totalToks = Number(usage?.total_tokens) || 0
+        const sysCount = apiMessages.filter(m => m.role === 'system').length
+        const usrCount = apiMessages.filter(m => m.role === 'user').length
+        const asstCount = apiMessages.filter(m => m.role === 'assistant').length
+        const toolCount = apiMessages.filter(m => m.role === 'tool').length
+        pushContext({ step: round, totalMessages: apiMessages.length, messageBreakdown: { system: sysCount, user: usrCount, assistant: asstCount, tool: toolCount }, inputTokens: totalToks, outputTokens: 0, usableTokens: 8000 - totalToks, contextWindow: 8000, usageRatio: Math.round((totalToks / 8000) * 100), compacted: false, omittedGroups: 0, messageSummary: apiMessages.map(m => `${m.role}: ${(m.content || '(tool_calls)').slice(0, 60)}`) })
+        pushMemory({ type: 'observation', content: `${toolName}: 执行成功`, id: '', timestamp: Date.now() })
+        continue
       }
-    } catch (e) {
-      setChat(prev => [...prev, { role: 'assistant', content: `❌ ${e}` }])
+
+      // final
+      addEvent(createTraceEvent('policy_check', 'PlanController.check_final()', { outcome: 'allow' }))
+      addEvent(createTraceEvent('policy_check', 'RuntimePolicy.check_final()', { outcome: 'allow' }))
+      addEvent(createTraceEvent('completion', 'CompletionTracker: success', {}))
+      setChat(p => [...p, { role: 'assistant', content: (msg?.content as string) || '(完成)' }])
+      break
     }
+
     setLlmLoading(false)
   }
 
