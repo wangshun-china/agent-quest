@@ -120,7 +120,7 @@ export default function BoundaryLevel() {
     setSimStep((s) => s + 1)
   }
 
-  // ─── Live LLM ───
+  // ─── Live LLM (完整 Agent Loop) ───
   const sendLive = async () => {
     const text = input.trim()
     if (!text || !apiKey) return
@@ -128,83 +128,208 @@ export default function BoundaryLevel() {
     setLlmLoading(true)
 
     const config = useConfigStore.getState()
+    const MAX_ROUNDS = 8
 
+    // Boot context (only first message)
     if (chat.length === 0) {
-      addEvent(createTraceEvent('system_context', 'System Prompt', { system_contract: SYSTEM_PROMPT }, 'build_system_contract_event() 生成'))
-      addEvent(createTraceEvent('tools_schema', 'Tool Registry', { tools: TOOLS.map(t => `${t.name} [${t.risk}]`) }, `共 ${TOOLS.length} 个工具`))
+      addEvent(createTraceEvent('system_context', 'System Prompt', {
+        system_contract: SYSTEM_PROMPT,
+      }, 'build_system_contract_event() 来自 prompt_layer.py'))
+      addEvent(createTraceEvent('tools_schema', 'Tool Registry (TOOL_REGISTRY)', {
+        tools: TOOLS.map(t => `${t.name} [${t.risk}] → ${t.effects}`),
+      }, `共 ${TOOLS.length} 个工具，来自 tools.py。inspect/safe → 免审批，edit/medium → 审批，execute/high → 严格审批`))
     }
 
-    addEvent(createTraceEvent('user_message', `用户: ${text}`, { role: 'user', content: text }))
-    addEvent(createTraceEvent('model_request', `POST ${config.apiBaseUrl}/chat/completions`, {
-      model: config.model, tool_count: TOOLS.length, message_count: chat.length + 2,
-    }, 'ContextBuilder 组装 messages + tools → ModelRequest'))
+    addEvent(createTraceEvent('user_message', `用户输入`, {
+      role: 'user', content: text,
+    }, 'role=user 追加到 messages'))
 
-    setChat((prev) => [...prev, { role: 'user', content: text }])
+    // Chat state
+    let newChat: ChatMsg[] = [{ role: 'user', content: text }]
 
-    try {
-      const history = chat.map(m => ({ role: m.role, content: m.content }))
-      history.push({ role: 'user', content: text })
+    // Build full message history for API (system + all previous + new)
+    const apiMessages: { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string; name?: string }[] = [
+      { role: 'system', content: SYSTEM_PROMPT },
+    ]
+    for (const m of chat) {
+      apiMessages.push({ role: m.role, content: m.content })
+    }
+    apiMessages.push({ role: 'user', content: text })
 
-      const res = await fetch(`${config.apiBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
-        body: JSON.stringify({
-          model: config.model,
-          messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...history],
-          tools: TOOLS.map(t => ({
-            type: 'function',
-            function: {
-              name: t.name,
-              description: t.description,
-              parameters: { type: 'object', properties: {}, required: [] },
-            },
-          })),
-          tool_choice: 'auto',
-        }),
-      })
+    // ── Agent Loop ──
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      addEvent(createTraceEvent('model_request', `Round ${round}: POST chat/completions`, {
+        endpoint: config.apiBaseUrl, model: config.model,
+        messages: apiMessages.length, tools: TOOLS.length,
+      }, `ContextBuilder: 当前 ${apiMessages.length} 条消息 + ${TOOLS.length} 个工具 → ModelRequest`))
 
-      const data = await res.json()
-      if (data.error) throw new Error(data.error.message || `HTTP ${res.status}`)
-
-      const msg = data.choices?.[0]?.message
-      const usage = data.usage
-
-      let assistantMsg: ChatMsg
-      if (msg?.tool_calls?.length) {
-        const tc = msg.tool_calls[0]
-        assistantMsg = { role: 'assistant', content: msg.content || '', toolCall: tc.function.name, toolResult: `调用 ${tc.function.name}(${tc.function.arguments})` }
-        addEvent(createTraceEvent('model_response', `模型 → tool_call: ${tc.function.name}`, {
-          finish_reason: data.choices?.[0]?.finish_reason,
-          tool_calls: [{ function: { name: tc.function.name, arguments: tc.function.arguments } }],
-          usage: usage ? { input: usage.input_tokens || usage.prompt_tokens, output: usage.output_tokens || usage.completion_tokens } : null,
-        }, '模型根据 observation 决定调用工具'))
-        addEvent(createTraceEvent('tool_execute', `执行 ${tc.function.name}`, {
-          name: tc.function.name, arguments: tc.function.arguments,
-        }, 'ToolExecutor 从 ToolSpec 读取 handler + timeout + output_schema'))
-        addEvent(createTraceEvent('observation', `Observation ← ${tc.function.name}`, {
-          note: '工具结果通过 role=tool + tool_call_id 回传模型',
-        }, '大结果按 TOOL_RESULT_MAX_TOKENS=3000 裁剪'))
-      } else {
-        assistantMsg = { role: 'assistant', content: msg?.content || '(空响应)' }
-        addEvent(createTraceEvent('model_response', '模型 → final', {
-          finish_reason: data.choices?.[0]?.finish_reason, content: msg?.content?.slice(0, 300),
-          usage: usage ? { input: usage.input_tokens || usage.prompt_tokens, output: usage.output_tokens || usage.completion_tokens } : null,
-        }, '模型输出最终答案'))
-        addEvent(createTraceEvent('completion', 'CompletionTracker: success', {
-          status: 'success', reason_code: 'completed',
-        }, '所有条件满足，允许 final'))
+      let data: Record<string, unknown>
+      try {
+        const res = await fetch(`${config.apiBaseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.apiKey}` },
+          body: JSON.stringify({
+            model: config.model,
+            messages: apiMessages,
+            tools: TOOLS.map(t => ({
+              type: 'function',
+              function: { name: t.name, description: t.description, parameters: { type: 'object', properties: {}, required: [] } },
+            })),
+            tool_choice: 'auto',
+          }),
+        })
+        data = await res.json()
+        if (data.error) throw new Error(String(data.error.message || data.error))
+      } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : '未知错误'
+        addEvent(createTraceEvent('error', 'API 调用失败', { error: errMsg, round }))
+        newChat.push({ role: 'assistant', content: `❌ API 返回 ${errMsg}` })
+        break
       }
-      addEvent(createTraceEvent('context_update', '上下文更新', {
-        messages: chat.length + 2, usage: usage ? JSON.stringify(usage) : 'N/A',
-      }, '新消息追加到上下文，下一轮模型请求包含完整历史'))
 
-      setChat((prev) => [...prev, assistantMsg])
-    } catch (e: unknown) {
-      const errMsg = e instanceof Error ? e.message : '未知错误'
-      addEvent(createTraceEvent('error', 'API 错误', { error: errMsg }))
-      setChat((prev) => [...prev, { role: 'assistant', content: `❌ ${errMsg}` }])
+      const choice = data.choices?.[0] as Record<string, unknown> | undefined
+      const finishReason = String(choice?.finish_reason || 'unknown')
+      const msg = choice?.message as Record<string, unknown> | undefined
+      const usage = data.usage as Record<string, number> | undefined
+      const content = String(msg?.content || '')
+      const toolCalls = msg?.tool_calls as Array<Record<string, unknown>> | undefined
+
+      addEvent(createTraceEvent('model_response', `Round ${round}: ${toolCalls ? `tool_call → ${(toolCalls[0]?.function as Record<string, string>)?.name || '?'}` : 'text → final'}`, {
+        finish_reason: finishReason,
+        content: content.slice(0, 200) || '(无文本)',
+        tool_calls: toolCalls || null,
+        usage: usage ? { input: usage.prompt_tokens || usage.input_tokens || 0, output: usage.completion_tokens || usage.output_tokens || 0, total: usage.total_tokens || 0 } : null,
+      }, toolCalls ? '模型决定调用工具继续探索/修改' : '模型认为任务完成，输出最终答案'))
+
+      // ── Branch: Tool Call ──
+      if (toolCalls && toolCalls.length > 0) {
+        const tc = toolCalls[0]
+        const fn = tc.function as Record<string, string>
+        const toolName = fn.name || 'unknown'
+        const toolArgs = fn.arguments || '{}'
+        const toolInfo = TOOLS.find(t => t.name === toolName)
+
+        // Policy check
+        addEvent(createTraceEvent('policy_check', `RuntimePolicy.check(${toolName})`, {
+          tool: toolName, risk: toolInfo?.risk || 'unknown', effects: toolInfo?.effects || 'unknown',
+          outcome: 'allow', code: 'allowed',
+        }, `ToolSpec 风险 ${toolInfo?.risk} + PermissionProfile → allow（inspect/safe 免审批）`))
+
+        // Tool execute
+        let toolResult: string
+        try {
+          const parsedArgs = JSON.parse(toolArgs)
+          toolResult = simulateToolExecution(toolName, parsedArgs)
+        } catch {
+          toolResult = `tool_error: 无法解析参数 ${toolArgs}`
+        }
+
+        addEvent(createTraceEvent('tool_execute', `ToolExecutor.execute(${toolName})`, {
+          name: toolName, args: toolArgs, result: toolResult,
+          duration_ms: Math.floor(Math.random() * 15) + 3,
+        }, `从 ToolSpec.handler 读取执行函数，校验参数，执行，校验 output_schema`))
+
+        addEvent(createTraceEvent('observation', `Observation: ${toolName} 结果回传`, {
+          tool_call_id: tc.id || 'unknown',
+          content_preview: toolResult.slice(0, 300),
+        }, `role=tool + tool_call_id=${tc.id} 追加到 messages。大结果按 TOOL_RESULT_MAX_TOKENS=3000 裁剪`))
+
+        // Add assistant(tool_calls) + tool result to API messages for next round
+        apiMessages.push({
+          role: 'assistant',
+          content: content || null,
+          tool_calls: [{ id: tc.id || `call_${round}`, type: 'function', function: { name: toolName, arguments: toolArgs } }],
+        })
+        apiMessages.push({
+          role: 'tool',
+          tool_call_id: String(tc.id || `call_${round}`),
+          name: toolName,
+          content: toolResult,
+        })
+
+        addEvent(createTraceEvent('context_update', `Round ${round}: 上下文更新`, {
+          total_messages: apiMessages.length,
+          new: `+2 (assistant + tool)`,
+          tokens: usage ? `${usage.total_tokens || '?'}` : '?',
+        }, 'assistant(tool_calls) + tool(call_id) 作为不可拆分协议组追加 → 循环继续'))
+
+        // Show in chat
+        newChat.push({
+          role: 'assistant',
+          content: content || `调用 ${toolName}`,
+          toolCall: toolName,
+          toolResult: toolResult.slice(0, 200),
+        })
+        setChat((prev) => [...prev, ...newChat.slice(-2)])
+        newChat = []
+        continue // next round of the loop
+      }
+
+      // ── Branch: Text (final) ──
+      addEvent(createTraceEvent('completion', `CompletionTracker: 运行结束`, {
+        finish_reason: finishReason,
+        status: 'success',
+        total_rounds: round,
+        total_tokens: usage?.total_tokens || 0,
+      }, `模型返回 finish_reason=${finishReason}，CompletionTracker 检查通过 → RunResult.success`))
+
+      newChat.push({ role: 'assistant', content: content || '(空响应)' })
+      setChat((prev) => [...prev, ...newChat])
+      break // done
     }
+
     setLlmLoading(false)
+  }
+
+  // ─── Simulated tool execution ───
+  function simulateToolExecution(name: string, args: Record<string, unknown>): string {
+    switch (name) {
+      case 'list_files': {
+        const path = String(args.path || '.')
+        return `[FILE] calc.py (${path === '.' ? 'workspace/' + path : path})`
+      }
+      case 'read_file': {
+        const filePath = String(args.path || '')
+        if (filePath.includes('calc.py')) return '1: def add(a, b):\n2:     return a + b\n'
+        return `1: # empty file\n`
+      }
+      case 'find_files':
+        return 'calc.py'
+      case 'search_text':
+        return 'calc.py:1: def add(a, b):'
+      case 'inspect_repo':
+        return 'Project structure:\n  calc.py (21 B) — Python source'
+      case 'rank_repo_context':
+        return '[{file: "calc.py", score: 0.98, reason: "task mentions calc.py"}]'
+      case 'delegate_readonly_task':
+        return 'Sub-agent completed: found calc.py with add function'
+      case 'write_file': {
+        const fPath = String(args.path || '')
+        const ct = String(args.content || '').slice(0, 30)
+        return `OK — wrote ${fPath} (${ct.length} chars)`
+      }
+      case 'replace_text':
+        return 'OK — replaced 1 occurrence in calc.py'
+      case 'apply_patch':
+        return 'OK — applied patch to calc.py'
+      case 'update_plan':
+        return 'OK — plan updated'
+      case 'run_command': {
+        const program = String(args.program || '')
+        const cmdArgs = Array.isArray(args.args) ? args.args.join(' ') : String(args.args || '')
+        if (program === 'python') {
+          const fullCmd = `${program} ${cmdArgs}`
+          if (fullCmd.includes('assert') || fullCmd.includes('test')) return 'OK (exit 0)\nstdout: All tests passed.'
+          if (fullCmd.includes('calc') || fullCmd.includes('add')) return 'OK (exit 0)'
+          return 'OK (exit 0)\nstdout: OK'
+        }
+        if (program === 'node') return 'OK (exit 0)'
+        if (program === 'npm') return 'OK (exit 0)\nnpm completed successfully.'
+        return `OK (exit 0)`
+      }
+      default:
+        return `Tool ${name} executed successfully.`
+    }
   }
 
   const handleSend = () => { if (mode === 'replay') sendSim(); else sendLive() }
