@@ -187,7 +187,8 @@ memory 注入为 harness context item (kind="relevant_memory", priority=3)`)
           }),
         })
         data = await res.json()
-        if (data.error) throw new Error(String(data.error.message || data.error))
+        const apiErr = data.error as { message?: string } | undefined
+        if (apiErr) throw new Error(String(apiErr.message || apiErr))
       } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : '未知错误'
         addEvent(createTraceEvent('error', 'API 调用失败', { error: errMsg, round }))
@@ -195,7 +196,8 @@ memory 注入为 harness context item (kind="relevant_memory", priority=3)`)
         break
       }
 
-      const choice = data.choices?.[0] as Record<string, unknown> | undefined
+      const choices = data.choices as Array<Record<string, unknown>> | undefined
+      const choice = choices?.[0]
       const finishReason = String(choice?.finish_reason || 'unknown')
       const msg = choice?.message as Record<string, unknown> | undefined
       const usage = data.usage as Record<string, number> | undefined
@@ -250,7 +252,7 @@ memory 注入为 harness context item (kind="relevant_memory", priority=3)`)
         // Add assistant(tool_calls) + tool result to API messages for next round
         apiMessages.push({
           role: 'assistant',
-          content: content || null,
+          content: content || '',
           tool_calls: [{ id: tc.id || `call_${round}`, type: 'function', function: { name: toolName, arguments: toolArgs } }],
         })
         apiMessages.push({

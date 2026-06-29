@@ -49,3 +49,55 @@ export const LEVEL_1_1_CONCEPT = {
     { title: 'Codex approvals and security', url: 'https://developers.openai.com/codex/agent-approvals-security', source: 'OpenAI' },
   ],
 }
+
+export const LEVEL_1_2_CONCEPT = {
+  title: 'ReAct 最小循环',
+  subtitle: 'Agent 不是一次性生成答案，而是 action → observation → next action 的控制循环',
+  sections: [
+    {
+      heading: 'ReAct 循环架构',
+      content: `while budget.has_capacity():
+    action = model.next(build_context(state))
+    decision = policy.check(action, state)
+
+    if decision.outcome == "deny":
+        state.observe(policy_feedback(decision))
+        continue          ← 被拒绝，重新决策
+
+    if action.is_final:
+        return completion.finish_or_reject(action, state)
+                          ← 模型认为完成，Harness 验证
+
+    observation = environment.execute(action)
+    state.record(action, observation)
+                          ← 记录动作和结果，进入下一轮`,
+      type: 'code' as const,
+    },
+    {
+      heading: 'ReAct vs 一次性计划',
+      content: '',
+      type: 'table' as const,
+      rows: [
+        { left: '一次性生成', right: '模型一次输出全部答案，没有反馈修正机会', highlight: 'harness' as const },
+        { left: 'ReAct 循环', right: '模型每步观察环境反馈，根据新信息调整后续决策', highlight: 'model' as const },
+        { left: '交错推理与行动', right: '模型在每轮中看到最新 observation，形成闭环', highlight: 'model' as const },
+        { left: 'Harness 角色', right: '控制预算、执行工具、校验协议、判断结束，不规定动作顺序', highlight: 'harness' as const },
+      ],
+    },
+    {
+      heading: 'Observation 的关键设计',
+      content: '• 不是把原始终端输出全量回灌——SWE-agent 的 ACI 思路强调要整理成模型可行动的 structured observation\n• 过大结果按 TOOL_RESULT_MAX_TOKENS 裁剪后再进入模型上下文\n• role=tool + tool_call_id 关联原调用，保持协议完整性\n• tool failure / policy denial 产生不同的 observation，给模型可行动的反馈',
+    },
+    {
+      heading: 'Harness 的停止条件',
+      content: '• 模型不能绕过完成条件：必须通过 CompletionTracker 验证（编辑有验证、plan goal 有 evidence）\n• Harness 不强制僵硬工具顺序（如"必须读→改→测"），但会检测无进展循环（repair_requires_progress）\n• 预算耗尽时允许带证据的 blocked 结果，而非无限循环',
+    },
+  ],
+  conclusion: 'ReAct 的核心是：模型在每步看到最新 observation，基于最新信息做下一步决策。Harness 负责执行、记录和边界控制，但把"选哪个动作"的自由留给模型。这个循环是后续所有 Agent 能力（planning、memory、multi-agent）的基础。',
+  references: [
+    { title: 'ReAct: Synergizing Reasoning and Acting in Language Models', url: 'https://arxiv.org/abs/2210.03629', source: 'NeurIPS 2023' },
+    { title: 'Building effective agents', url: 'https://www.anthropic.com/engineering/building-effective-agents', source: 'Anthropic' },
+    { title: 'SWE-agent: Agent-Computer Interfaces', url: 'https://arxiv.org/abs/2405.15793', source: 'NeurIPS 2024' },
+    { title: 'mini-swe-agent', url: 'https://github.com/SWE-agent/mini-swe-agent', source: 'GitHub' },
+  ],
+}
