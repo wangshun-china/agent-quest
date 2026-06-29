@@ -7,6 +7,8 @@ interface LevelLayoutProps {
   conceptCard: ReactNode;
   simulation: ReactNode;
   pipeline: ReactNode;
+  mode?: 'live' | 'replay';
+  onModeChange?: (mode: 'live' | 'replay') => void;
 }
 
 const MIN_LEFT = 220
@@ -37,16 +39,33 @@ function saveSizes(left: number, right: number) {
   } catch { /* ignore */ }
 }
 
-function Resizer({ onDrag, position }: { onDrag: (delta: number) => void; position: 'left' | 'right' }) {
-  const resizerRef = useRef<HTMLDivElement>(null)
+function Resizer({
+  panelRef,
+  minSize,
+  maxSize,
+  initialSize,
+  onResizeEnd,
+}: {
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  minSize: number;
+  maxSize: number;
+  initialSize: number;
+  onResizeEnd: (finalSize: number) => void;
+}) {
+  const currentSize = useRef(initialSize)
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     const startX = e.clientX
+    const startW = panelRef.current?.offsetWidth ?? currentSize.current
 
     const handleMouseMove = (ev: MouseEvent) => {
       const delta = ev.clientX - startX
-      onDrag(position === 'left' ? delta : -delta)
+      const newW = Math.min(maxSize, Math.max(minSize, startW + delta))
+      currentSize.current = newW
+      if (panelRef.current) {
+        panelRef.current.style.width = `${newW}px`
+      }
     }
 
     const handleMouseUp = () => {
@@ -54,21 +73,21 @@ function Resizer({ onDrag, position }: { onDrag: (delta: number) => void; positi
       document.removeEventListener('mouseup', handleMouseUp)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      onResizeEnd(currentSize.current)
     }
 
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-  }, [onDrag, position])
+  }, [panelRef, minSize, maxSize, onResizeEnd])
 
   return (
     <div
-      ref={resizerRef}
       onMouseDown={handleMouseDown}
-      className="w-1 shrink-0 cursor-col-resize hover:bg-[#5E6AD2]/40 active:bg-[#5E6AD2]/60 transition-colors duration-150 relative group"
+      className="w-[5px] shrink-0 cursor-col-resize hover:bg-[#5E6AD2]/40 active:bg-[#5E6AD2]/60 transition-colors duration-150 relative group z-10"
     >
-      <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-[#5E6AD2]/10 transition-colors duration-150" />
+      <div className="absolute inset-y-0 -left-1 -right-1" />
     </div>
   )
 }
@@ -79,57 +98,62 @@ export default function LevelLayout({
   conceptCard,
   simulation,
   pipeline,
+  mode,
+  onModeChange,
 }: LevelLayoutProps) {
+  const leftRef = useRef<HTMLDivElement>(null)
+  const rightRef = useRef<HTMLDivElement>(null)
   const [leftWidth, setLeftWidth] = useState(() => loadSizes().left)
   const [rightWidth, setRightWidth] = useState(() => loadSizes().right)
 
-  const handleLeftDrag = useCallback((delta: number) => {
-    setLeftWidth((prev) => {
-      const next = Math.min(MAX_LEFT, Math.max(MIN_LEFT, prev + delta))
-      saveSizes(next, rightWidth)
-      return next
-    })
+  const handleLeftResizeEnd = useCallback((finalSize: number) => {
+    setLeftWidth(finalSize)
+    saveSizes(finalSize, rightWidth)
   }, [rightWidth])
 
-  const handleRightDrag = useCallback((delta: number) => {
-    setRightWidth((prev) => {
-      const next = Math.min(MAX_RIGHT, Math.max(MIN_RIGHT, prev + delta))
-      saveSizes(leftWidth, next)
-      return next
-    })
+  const handleRightResizeEnd = useCallback((finalSize: number) => {
+    setRightWidth(finalSize)
+    saveSizes(leftWidth, finalSize)
   }, [leftWidth])
-
-  // Sync save when either changes
-  useEffect(() => {
-    saveSizes(leftWidth, rightWidth)
-  }, [leftWidth, rightWidth])
 
   return (
     <div className="h-screen flex flex-col bg-[#FAFAFA]">
-      <TopBar title={title} levelNumber={levelNumber} />
+      <TopBar title={title} levelNumber={levelNumber} mode={mode} onModeChange={onModeChange} />
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Concept card */}
         <div
+          ref={leftRef}
           className="shrink-0 overflow-y-auto p-4"
           style={{ width: leftWidth }}
         >
           {conceptCard}
         </div>
 
-        {/* Left resizer */}
-        <Resizer onDrag={handleLeftDrag} position="left" />
+        <Resizer
+          panelRef={leftRef}
+          minSize={MIN_LEFT}
+          maxSize={MAX_LEFT}
+          initialSize={leftWidth}
+          onResizeEnd={handleLeftResizeEnd}
+        />
 
-        {/* Center: Simulation area */}
+        {/* Center: Simulation */}
         <div className="flex-1 overflow-y-auto p-6 min-w-0">
           {simulation}
         </div>
 
-        {/* Right resizer */}
-        <Resizer onDrag={handleRightDrag} position="right" />
+        <Resizer
+          panelRef={rightRef}
+          minSize={MIN_RIGHT}
+          maxSize={MAX_RIGHT}
+          initialSize={rightWidth}
+          onResizeEnd={handleRightResizeEnd}
+        />
 
         {/* Right: Pipeline */}
         <div
+          ref={rightRef}
           className="shrink-0 overflow-y-auto p-4"
           style={{ width: rightWidth }}
         >
