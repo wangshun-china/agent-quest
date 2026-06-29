@@ -130,10 +130,12 @@ export default function BoundaryLevel() {
     const config = useConfigStore.getState()
     const MAX_ROUNDS = 8
 
-    // Boot context (only first message)
+    // Boot context (only first message in this conversation)
     if (chat.length === 0) {
+      clearEvents() // new conversation → clear old trace
       addEvent(createTraceEvent('system_context', 'System Prompt', {
         system_contract: SYSTEM_PROMPT,
+        protocol: 'native_function_calling', parallel: false, version: 'system_contract.v2',
       }, 'build_system_contract_event() 来自 prompt_layer.py'))
       addEvent(createTraceEvent('tools_schema', 'Tool Registry (TOOL_REGISTRY)', {
         tools: TOOLS.map(t => `${t.name} [${t.risk}] → ${t.effects}`),
@@ -176,6 +178,7 @@ export default function BoundaryLevel() {
               function: { name: t.name, description: t.description, parameters: { type: 'object', properties: {}, required: [] } },
             })),
             tool_choice: 'auto',
+            parallel_tool_calls: false,
           }),
         })
         data = await res.json()
@@ -210,10 +213,15 @@ export default function BoundaryLevel() {
         const toolInfo = TOOLS.find(t => t.name === toolName)
 
         // Policy check
+        const effects = toolInfo?.effects || 'unknown'
+        const risk = toolInfo?.risk || 'unknown'
+        const isEdit = effects === 'edit'
+
         addEvent(createTraceEvent('policy_check', `RuntimePolicy.check(${toolName})`, {
-          tool: toolName, risk: toolInfo?.risk || 'unknown', effects: toolInfo?.effects || 'unknown',
-          outcome: 'allow', code: 'allowed',
-        }, `ToolSpec 风险 ${toolInfo?.risk} + PermissionProfile → allow（inspect/safe 免审批）`))
+          tool: toolName, risk, effects, outcome: 'allow', code: 'allowed',
+        }, isEdit
+          ? `ToolSpec 风险=${risk}, effects=${effects} → 检查 read_before_edit: 是否有新鲜观察？文件 mtime/size/sha1 是否一致？`
+          : `ToolSpec 风险=${risk}, effects=${effects} → Policy: allow（inspect/safe 免审批）`))
 
         // Tool execute
         let toolResult: string
@@ -266,6 +274,12 @@ export default function BoundaryLevel() {
       }
 
       // ── Branch: Text (final) ──
+      addEvent(createTraceEvent('policy_check', 'PlanController.check_final()', {
+        outcome: 'allow', task_plan_complete: true, evidence: '模型提供了足够的完成证据',
+      }, 'Plan 模式下检查 task plan 中所有 goal 是否都有 evidence'))
+      addEvent(createTraceEvent('policy_check', 'RuntimePolicy.check_final()', {
+        outcome: 'allow', verification_state: 'passed',
+      }, '检查是否有未通过的验证、是否有未完成的编辑'))
       addEvent(createTraceEvent('completion', `CompletionTracker: 运行结束`, {
         finish_reason: finishReason,
         status: 'success',
