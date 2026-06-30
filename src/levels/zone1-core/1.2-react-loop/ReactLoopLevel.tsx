@@ -251,9 +251,6 @@ export default function ReactLoopLevel() {
         addEvent(createTraceEvent('observation', `Observation: ${toolName} 回传`, {
           tool_call_id: tc.id || '?', result: simResult.slice(0, 300),
         }, 'role=tool + tool_call_id 追加到 messages'))
-        addEvent(createTraceEvent('context_update', `Round ${round}: 上下文更新`, {
-          messages: apiMessages.length + 2,
-        }, 'assistant(tool_calls) + tool(call_id) → 循环继续'))
 
         apiMessages.push({ role: 'assistant', content: (msg?.content as string) || '', tool_calls: [{ id: tc.id || `call_${round}`, type: 'function', function: { name: toolName, arguments: toolArgs } }] })
         apiMessages.push({ role: 'tool', tool_call_id: String(tc.id || `call_${round}`), name: toolName, content: simResult })
