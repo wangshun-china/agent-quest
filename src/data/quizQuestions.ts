@@ -27,5 +27,17 @@ export const LEVEL_1_2_QUIZ: QuizQuestion = {
     { label: 'C', text: 'observation 只在最后一步才发给模型' },
   ],
   correctIndex: 1,
-  explanation: 'SWE-agent 的 ACI 研究证明：observation 需要被整理成模型可行动的形式，而非原样倾倒。lab 代码中 TOOL_RESULT_MAX_TOKENS=3000 明确限制回传长度，超大结果按预算裁剪。A 错误（"越多越好"会导致上下文雪崩），C 错误（每轮都需要 observation 才能形成闭环）。',
+  explanation: 'SWE-agent 的 ACI 研究证明：observation 需要被整理成模型可行动的形式，而非原样倾倒。lab 代码中 TOOL_RESULT_MAX_TOKENS=3000 明确限制回传长度，超大结果按预算裁剪。',
+}
+
+export const LEVEL_1_3_QUIZ: QuizQuestion = {
+  id: '1.3-q1',
+  question: '关于 ModelClient 的 streaming 机制，哪个说法正确？',
+  options: [
+    { label: 'A', text: 'Streaming 只是为了 UI 好看，runtime 不需要关心' },
+    { label: 'B', text: 'ToolCallDelta 参数 delta 需要等 ResponseCompleted 后才能组装成可执行的 ToolCall' },
+    { label: 'C', text: 'Streaming 模式下每个 delta 都应该立刻执行对应的工具' },
+  ],
+  correctIndex: 1,
+  explanation: 'B 正确。Streaming 是 runtime 协议的一部分——ToolCallDelta 的参数可能分散在多个 SSE chunk 中，必须在 ResponseCompleted 后才由 accumulator 组装成完整 ToolCall。A 错误（streaming 影响 usage/finish_reason/response_id 等 Agent 语义），C 错误（执行半截 JSON 会导致参数不全）。',
 }

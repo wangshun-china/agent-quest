@@ -101,3 +101,54 @@ export const LEVEL_1_2_CONCEPT = {
     { title: 'mini-swe-agent', url: 'https://github.com/SWE-agent/mini-swe-agent', source: 'GitHub' },
   ],
 }
+
+export const LEVEL_1_3_CONCEPT = {
+  title: 'ModelClient 消息协议与 Streaming',
+  subtitle: 'runtime 如何与模型通信——SSE 流式事件、规范化响应、错误重试',
+  sections: [
+    {
+      heading: 'ModelClient 模型',
+      content: `class ModelClient:
+    def stream(request: ModelRequest) -> Iterator[ModelEvent]: ...
+        # SSE 流 → TextDelta | UsageUpdate | ResponseCompleted
+
+    def complete(request: ModelRequest) -> ModelResponse:
+        return collect_response(self.stream(request))
+        # 同一套流产生完整响应
+
+ModelEvent = TextDelta | UsageUpdate | ResponseCompleted
+
+class ModelResponse:
+    content: str
+    finish_reason: str | None
+    usage: ModelUsage | None
+    response_id: str | None
+    model: str | None`,
+      type: 'code' as const,
+    },
+    {
+      heading: 'SSE 事件类型',
+      content: '',
+      type: 'table' as const,
+      rows: [
+        { left: 'TextDelta', right: 'content 字段的增量文本片段。多个 delta 拼接成完整响应', highlight: 'model' as const },
+        { left: 'ToolCallDelta', right: 'tool call 的 name + arguments 增量（1.4 扩展）。不能执行半截 JSON', highlight: 'harness' as const },
+        { left: 'UsageUpdate', right: 'input/output token 使用量，中途可能多次更新', highlight: 'harness' as const },
+        { left: 'ResponseCompleted', right: 'finish_reason + response_id + model。在此之前不能执行 tool call', highlight: 'harness' as const },
+      ],
+    },
+    {
+      heading: '错误重试规则',
+      content: '• retry 只包围无副作用的模型请求\n• 记录 attempt 次数（MODEL_MAX_RETRIES=2）\n• MODEL_RETRY_BACKOFF_SECONDS=2 间隔\n• 只重试网络/超时错误，不重试 4xx（参数/认证问题）',
+    },
+    {
+      heading: '与 Agent Loop 的关系',
+      content: 'ModelClient 是 Agent Loop 的"通信层"：每轮 while 循环中，ModelRequest → ModelClient.stream() → SSE 事件 → 累积 ModelResponse → 交给 RuntimePolicy 判断 → 返回 Agent Loop',
+    },
+  ],
+  conclusion: 'ModelClient 隐藏供应商 HTTP/SSE 差异，保留 Agent 所需语义（usage/finish_reason/response_id/model）。Streaming 不是 UI 优化而是 runtime 协议——ToolCallDelta 需要等 ResponseCompleted 才能执行。',
+  references: [
+    { title: 'OpenAI Streaming', url: 'https://platform.openai.com/docs/api-reference/streaming', source: 'OpenAI' },
+    { title: 'MCP Architecture', url: 'https://modelcontextprotocol.io/docs/learn/architecture', source: 'MCP' },
+  ],
+}
