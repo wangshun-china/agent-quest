@@ -79,6 +79,28 @@ const SCENES = [
 
 interface ChatMsg { role: 'user' | 'assistant'; content: string }
 
+function simulateTool(name: string, args: Record<string, unknown>): string {
+  switch (name) {
+    case 'list_files': return JSON.stringify({ items: [{ name: 'calc.py', type: 'file' }, { name: 'test_calc.py', type: 'file' }], total_items: 2, truncated: false })
+    case 'read_file': return `1: def add(a, b):\n2:     return a + b\n3: \n4: def subtract(a, b):\n5:     return a - b\n`
+    case 'find_files': return 'calc.py\ntest_calc.py'
+    case 'search_text': return 'calc.py:1: def add(a, b):\ncalc.py:4: def subtract(a, b):'
+    case 'inspect_repo': return JSON.stringify({ language: 'python', files: [{ path: 'calc.py', symbols: ['add', 'subtract'] }, { path: 'test_calc.py', symbols: [] }] })
+    case 'rank_repo_context': return JSON.stringify([{ file: 'calc.py', score: 0.95, reason: 'main source file' }])
+    case 'delegate_readonly_task': return 'sub-agent found calc.py with add and subtract functions'
+    case 'write_file': return `OK — wrote ${args.path || 'file'} (${String(args.content || '').length} chars)`
+    case 'replace_text': return 'OK — replaced 1 occurrence'
+    case 'apply_patch': return 'OK — patch applied'
+    case 'update_plan': return 'OK — plan updated'
+    case 'run_command': {
+      const prog = String(args.program || '')
+      if (prog === 'python' || prog === 'python3') return 'OK (exit 0)\nstdout: All tests passed.'
+      return `OK (exit 0)`
+    }
+    default: return `OK`
+  }
+}
+
 export default function ReactLoopLevel() {
   const completeLevel = useProgressStore((s) => s.completeLevel)
   const apiKey = useConfigStore((s) => s.apiKey)
@@ -222,18 +244,19 @@ export default function ReactLoopLevel() {
         addEvent(createTraceEvent('policy_check', `RuntimePolicy.check(${toolName})`, {
           tool: toolName, risk: toolInfo?.risk || '?', effects: toolInfo?.effects || '?', outcome: 'allow',
         }, `ToolSpec 风险=${toolInfo?.risk || '?'} → allow`))
+        const simResult = simulateTool(toolName, JSON.parse(toolArgs || '{}'))
         addEvent(createTraceEvent('tool_execute', `ToolExecutor.execute(${toolName})`, {
-          name: toolName, args: toolArgs, duration_ms: Math.floor(Math.random() * 20) + 3,
+          name: toolName, args: toolArgs, result: simResult.slice(0, 200), duration_ms: Math.floor(Math.random() * 20) + 3,
         }))
         addEvent(createTraceEvent('observation', `Observation: ${toolName} 回传`, {
-          tool_call_id: tc.id || '?',
+          tool_call_id: tc.id || '?', result: simResult.slice(0, 300),
         }, 'role=tool + tool_call_id 追加到 messages'))
         addEvent(createTraceEvent('context_update', `Round ${round}: 上下文更新`, {
           messages: apiMessages.length + 2,
         }, 'assistant(tool_calls) + tool(call_id) → 循环继续'))
 
         apiMessages.push({ role: 'assistant', content: (msg?.content as string) || '', tool_calls: [{ id: tc.id || `call_${round}`, type: 'function', function: { name: toolName, arguments: toolArgs } }] })
-        apiMessages.push({ role: 'tool', tool_call_id: String(tc.id || `call_${round}`), name: toolName, content: `OK — ${toolName} 执行成功` })
+        apiMessages.push({ role: 'tool', tool_call_id: String(tc.id || `call_${round}`), name: toolName, content: simResult })
         setChat(p => [...p, { role: 'assistant', content: `${msg?.content || ''}\n🔧 ${toolName}(${toolArgs})` }])
 
         const totalToks = Number(usage?.total_tokens) || 0
