@@ -39,5 +39,17 @@ export const LEVEL_1_3_QUIZ: QuizQuestion = {
     { label: 'C', text: 'Streaming 模式下每个 delta 都应该立刻执行对应的工具' },
   ],
   correctIndex: 1,
-  explanation: 'B 正确。Streaming 是 runtime 协议的一部分——ToolCallDelta 的参数可能分散在多个 SSE chunk 中，必须在 ResponseCompleted 后才由 accumulator 组装成完整 ToolCall。A 错误（streaming 影响 usage/finish_reason/response_id 等 Agent 语义），C 错误（执行半截 JSON 会导致参数不全）。',
+  explanation: 'B 正确。Streaming 是 runtime 协议的一部分——ToolCallDelta 的参数可能分散在多个 SSE chunk 中，必须在 ResponseCompleted 后才由 accumulator 组装成完整 ToolCall。',
+}
+
+export const LEVEL_1_4_QUIZ: QuizQuestion = {
+  id: '1.4-q1',
+  question: '关于 Function Calling 的工具结果回传，哪个说法正确？',
+  options: [
+    { label: 'A', text: '用普通 user message 发"工具结果：xxx"' },
+    { label: 'B', text: '使用 role=tool + tool_call_id 原生协议回传，模型自动关联到对应的 assistant tool_calls' },
+    { label: 'C', text: '工具结果不需要回传给模型' },
+  ],
+  correctIndex: 1,
+  explanation: 'B 正确。升级到原生 Function Calling 后，工具结果使用 role=tool + tool_call_id 回传，模型通过 call_id 自动关联。A 是旧实现的虚构 user message 方案（已被删除），C 错误（不回传结果就无法形成 observation 闭环）。',
 }

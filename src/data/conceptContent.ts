@@ -152,3 +152,49 @@ class ModelResponse:
     { title: 'MCP Architecture', url: 'https://modelcontextprotocol.io/docs/learn/architecture', source: 'MCP' },
   ],
 }
+
+export const LEVEL_1_4_CONCEPT = {
+  title: 'Function Calling 与结构化 Tool Use',
+  subtitle: '模型不执行函数——它通过结构化协议表达调用意图，Harness 负责执行和结果关联',
+  sections: [
+    {
+      heading: '从文本协议到原生 Function Calling',
+      content: `旧实现（已删除）:
+  system prompt 注入自定义工具说明
+  → 模型输出 {"type":"tool","name":"read_file",...}
+  → ActionParser 解析 JSON
+  → 用 user message 回传结果
+
+新实现:
+  ToolSpec → tool_schema.py → provider function tools
+  → ModelRequest(tools, tool_choice="auto")
+  → ModelClient 解析 delta.tool_calls
+  → ToolCall(call_id, name, arguments)
+  → validate → execute
+  → role=tool + tool_call_id 回传`,
+      type: 'code' as const,
+    },
+    {
+      heading: '关键设计决策',
+      content: '',
+      type: 'table' as const,
+      rows: [
+        { left: '工具定义位置', right: '请求顶层 tools 参数，不是 message 内容', highlight: 'harness' as const },
+        { left: '工具结果回传', right: 'role=tool + tool_call_id（原生协议），非虚构 user message', highlight: 'harness' as const },
+        { left: '参数校验', right: 'provider schema 改善生成约束，本地 validate_tool_arguments 仍是可信边界', highlight: 'harness' as const },
+        { left: '无效 JSON', right: '不做启发式修复，以相同 call_id 返回结构化错误', highlight: 'harness' as const },
+        { left: '并行调用', right: 'parallel_tool_calls=False。多调用全部拒绝并逐个返回错误', highlight: 'harness' as const },
+        { left: '消息快照', right: 'ModelRequest.messages 在调用边界深拷贝，保证 replay 稳定', highlight: 'harness' as const },
+      ],
+    },
+    {
+      heading: 'ToolSpec → Function Tool 映射',
+      content: '• tool_schema.py: ToolSpec(name, handler, risk, parameters, effects, output_schema) → provider function tool\n• 工具不在 system prompt 中描述，而是通过 API 的 tools 参数暴露\n• 模型通过 tool_choice="auto" 自主决定是否调用工具',
+    },
+  ],
+  conclusion: 'Function Calling 是 Agent 能力的核心——模型用结构化协议表达意图，Harness 校验并执行。关键区分：provider schema ≠ runtime validation（前者改善生成，后者保证安全）；工具结果用原生 role=tool 回传而非虚构消息。',
+  references: [
+    { title: 'OpenAI Function Calling', url: 'https://platform.openai.com/docs/guides/function-calling', source: 'OpenAI' },
+    { title: 'MCP Architecture', url: 'https://modelcontextprotocol.io/docs/learn/architecture', source: 'MCP' },
+  ],
+}
