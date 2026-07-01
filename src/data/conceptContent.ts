@@ -198,3 +198,86 @@ export const LEVEL_1_4_CONCEPT = {
     { title: 'MCP Architecture', url: 'https://modelcontextprotocol.io/docs/learn/architecture', source: 'MCP' },
   ],
 }
+export const LEVEL_2_1_CONCEPT = {
+  title: 'Tool Registry 与 ACI',
+  subtitle: '工具不是函数集合，而是Agent与计算机之间的界面设计',
+  sections: [
+    { heading: 'ACI 核心思想', content: '工具名称、描述、粒度、输入输出schema、结果长度和错误反馈——都会影响Agent的选择质量。好的ACI让模型"一看就懂怎么用"，差的ACI让模型反复试错。', type:'text' as const },
+    { heading: 'ToolSpec 结构', content: `ToolSpec(
+  name="read_file",         # 模型看到的工具名
+  handler=read_file,        # 实际执行函数
+  risk="safe",              # safe/medium/high → Policy 依据
+  description="...",        # 自然语言描述（关键！）
+  parameters={...},         # JSON Schema → provider function tool
+  effects=frozenset({"inspect"}),  # inspect/edit/execute
+  output_schema={...},      # 输出校验
+)`, type:'code' as const },
+    { heading: '单一 Registry', content: 'TOOL_REGISTRY 是唯一工具事实来源。新增工具不需要同步多个名单——注册后自动出现在 provider tools 和文档中。', type:'text' as const },
+  ],
+  conclusion: 'SWE-agent 证明 ACI 直接影响任务成功率。好工具接口让模型自然选择正确动作，坏接口让模型陷入混乱。',
+  references: [{ title:'SWE-agent: ACI', url:'https://arxiv.org/abs/2405.15793', source:'NeurIPS 2024' }],
+}
+
+export const LEVEL_2_2_CONCEPT = {
+  title: 'Runtime Policy 权限审批',
+  subtitle: 'allow/ask/deny — Harness的安全决策边界',
+  sections: [
+    { heading: '三层决策', content: 'RuntimePolicy 根据 ToolSpec.risk + PermissionProfile 决策:\n• allow: 低风险 inspect 类工具，直接放行\n• ask: 中等风险 edit 类工具，交给 ApprovalController\n• deny: 高风险操作或未知程序，直接拒绝', type:'text' as const },
+    { heading: '不是 system prompt', content: 'Policy 是代码级 enforcement，不是 prompt 建议。模型不能通过"说服"来绕过——RuntimePolicy 在每次 tool_call 前都重新检查。', type:'text' as const },
+    { heading: '命令安全', content: 'run_command 使用 program + args 且 shell=False。这消除了 shell 操作符解释攻击，但应用层路径检查不是 OS Sandbox。', type:'text' as const },
+  ],
+  conclusion: 'Sandbox 决定技术上能做什么，Policy 决定何时允许做，Approval 决定何时必须停下来问。',
+  references: [{ title:'Codex Approvals', url:'https://developers.openai.com/codex/agent-approvals-security', source:'OpenAI' }],
+}
+
+export const LEVEL_2_3_CONCEPT = {
+  title: '代码编辑与 Patch 系统',
+  subtitle: '读后编辑、精确替换、patch创建与回滚',
+  sections: [
+    { heading: '编辑三工具', content: 'write_file（全覆盖）、replace_text（精确替换）、apply_patch（unified diff）。区别在于精确度和安全性。', type:'text' as const },
+    { heading: 'read-before-edit 机制', content: '对已有文件，Harness要求模型已通过inspect工具观察过该文件，且当前size/mtime/sha1与观察时一致。否则返回read_before_edit_required或file_changed_since_read。', type:'text' as const },
+    { heading: '回滚保护', content: 'apply_patch支持create/update/delete。写入阶段保留旧文件快照，普通写入异常自动回滚已触碰目标。', type:'text' as const },
+  ],
+  conclusion: '编辑不是"信任模型写正确的文件"——Harness在每次编辑前检查前置条件，编辑后验证结果。',
+  references: [{ title:'Aider', url:'https://github.com/paul-gauthier/aider', source:'GitHub' }],
+}
+
+export const LEVEL_2_4_CONCEPT = {
+  title: '验证反馈与自动修复',
+  subtitle: '测试失败 → 反馈 → 修复 → 重测，直到通过或预算耗尽',
+  sections: [
+    { heading: '验证闭环', content: `1. 模型完成编辑
+2. run_command 执行验证
+3. 失败 → verification_feedback 生成带 repair_hint 的摘要
+4. 模型根据 hint 调整代码
+5. 重新验证`, type:'code' as const },
+    { heading: 'repair_controller', content: 'Harness保存失败指纹（规范化命令+退出码+关键错误行）。如果模型没有新观察、新搜索或新编辑就重跑同一条失败验证，返回repair_requires_progress。', type:'text' as const },
+    { heading: '指纹只在本地', content: '失败指纹是Harness内部索引，不暴露给模型。模型看到的是错误摘要和repair_hint（首次/同类/编辑后仍失败/新失败模式）。', type:'text' as const },
+  ],
+  conclusion: 'Reflexion 证明语言反馈可以改善后续尝试，但要避免空转——repair_controller 确保每次重试都有信息增量。',
+  references: [{ title:'Reflexion', url:'https://arxiv.org/abs/2303.11366', source:'ICLR 2023' }],
+}
+
+export const LEVEL_3_1_CONCEPT = {
+  title: 'Context Engineering',
+  subtitle: 'ContextBuilder 按优先级组装上下文，超出预算时自动压缩',
+  sections: [
+    { heading: 'ContextItem 优先级系统', content: '不同来源的上下文有不同优先级:\n• required(系统契约) > high(用户消息) > medium(harness context) > low\n• 超出 output_reserve 时低优先级项可能被省略', type:'text' as const },
+    { heading: 'ContextManifest', content: '每轮构建后产出: input_tokens, output_tokens, usable_tokens, compacted, omitted_groups, omitted_call_ids, compressed_call_ids。', type:'text' as const },
+    { heading: 'Auto-compact', content: '当 total_tokens ≥ context_window × CONTEXT_WARNING_RATIO(0.8) 时触发压缩。压缩对象是旧的 assistant+tool 消息组，不压缩 system 和最新消息。', type:'text' as const },
+  ],
+  conclusion: '上下文工程不是"塞越多越好"——它是有预算的优先级组装，确保模型在有限窗口内看到最关键的信息。',
+  references: [{ title:'Building effective agents', url:'https://www.anthropic.com/engineering/building-effective-agents', source:'Anthropic' }],
+}
+
+export const LEVEL_3_2_CONCEPT = {
+  title: 'Planning 与 Plan-Execute',
+  subtitle: '先计划还是边做边计划？Auto/Required/Off三种模式',
+  sections: [
+    { heading: '三种 Plan Mode', content: '• auto: 模型可选择是否先制定计划\n• required: workspace edit前必须有plan\n• off: 不暴露update_plan工具', type:'text' as const },
+    { heading: 'update_plan 工具', content: 'update_plan 和 read_file 一样通过原生 Function Calling 暴露。它的effect是plan，只修改session下的task_plan.json，不获得workspace写权限。', type:'text' as const },
+    { heading: '重规划', content: '模型可随时调用update_plan修改计划。Harness不规定工具顺序，但要求重规划有原因和触发证据，并受总步数/step budget/stall/revision budget约束。', type:'text' as const },
+  ],
+  conclusion: 'Plan-and-Execute vs ReAct 不是二选一。成熟系统混合两者：外层确定性workflow控制权限和完成条件，内层agentic loop让模型动态调整。',
+  references: [{ title:'Plan-and-Solve', url:'https://arxiv.org/abs/2305.04091', source:'ICLR 2024' }, { title:'Building effective agents', url:'https://www.anthropic.com/engineering/building-effective-agents', source:'Anthropic' }],
+}
