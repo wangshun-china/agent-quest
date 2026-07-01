@@ -51,8 +51,7 @@ export default function WorldMap() {
               <div className="grid grid-cols-2 gap-3">
                 {zoneLevels.map((level) => {
                   const completed = isCompleted(level.id)
-                  const locked = level.requiresLevels.length > 0 &&
-                    !level.requiresLevels.every((id) => isCompleted(id))
+                  const locked = false
 
                   return (
                     <motion.button
