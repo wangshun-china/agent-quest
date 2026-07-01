@@ -188,8 +188,8 @@ export default function FunctionCallingLevel() {
           <div className="flex-1 overflow-y-auto space-y-3 mb-4 min-h-0">
             {chat.length === 0 && (
               <div className="bg-white rounded-xl border border-[#E5E5E5] p-6">
-                <h2 className="text-lg font-semibold mb-2">SSE Streaming 观察</h2>
-                <p className="text-sm text-[#6B6B6B] mb-2">{mode === 'replay' ? '发送消息，观察 ModelClient 如何通过 SSE 流与模型通信。' : '调用 LLM API，观察 HTTP 请求/响应和 SSE 事件流。'}</p>
+                <h2 className="text-lg font-semibold mb-2">代码编辑观察</h2>
+                <p className="text-sm text-[#6B6B6B] mb-2">{mode === 'replay' ? '观察 read-before-edit 机制：编辑前必须 inspect，文件状态必须一致。' : '调用 LLM API，观察 write_file/replace_text/apply_patch 的编辑流程。'}</p>
                 {!apiKey && mode === 'live' && <p className="text-sm text-[#D23B3B]">⚠ 请先配置 API Key</p>}
               </div>
             )}
