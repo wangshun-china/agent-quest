@@ -1,0 +1,1 @@
+import{lazy}from"react";import t from"../../types";const c:t.LevelConfig={id:"4.2-evaluation",zone:4,order:2,title:"Evaluation 评测",description:"eval_runner,测试用例,回归对比",type:"config",component:lazy(()=>import("./Level")),requiresLevels:["4.1-observability"],references:[{title:"SWE-bench",url:"https://arxiv.org/abs/2310.06770",source:"ICLR 2024"}]};export default c

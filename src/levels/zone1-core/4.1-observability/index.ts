@@ -1,0 +1,1 @@
+import{lazy}from"react";import t from"../../types";const c:t.LevelConfig={id:"4.1-observability",zone:4,order:1,title:"可观测性 Trace 与 Replay",description:"JSONL日志+checkpoint+replay定位",type:"debug",component:lazy(()=>import("./Level")),requiresLevels:["3.5-completion"],references:[{title:"OpenHands",url:"https://arxiv.org/abs/2407.16741",source:"arXiv 2024"}]};export default c

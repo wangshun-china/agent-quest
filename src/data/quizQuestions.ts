@@ -88,3 +88,33 @@ export const LEVEL_3_2_QUIZ: QuizQuestion = {
   options: [{label:'A',text:'两者一样，都能写文件'},{label:'B',text:'update_plan 只写 session 下的 task_plan.json，无 workspace 权限'},{label:'C',text:'update_plan 可以直接改代码'}],
   correctIndex: 1, explanation: 'update_plan 的 effect=plan，只修改 task_plan.json。它不获得 workspace 写权限，也不需要 Approval。计划由模型生成，Harness 只保证结构有效。',
 }
+
+export const LEVEL_3_3_QUIZ: QuizQuestion = {
+  id: '3.3-q1', question: 'rank_repo_context 工具的主要作用是什么？',
+  options: [{label:'A',text:'列出所有文件'},{label:'B',text:'根据任务语义对文件进行相关性评分，返回候选文件和建议读取顺序'},{label:'C',text:'修改 repo map 中的符号索引'}],
+  correctIndex: 1, explanation: 'rank_repo_context 是 inspect 类工具，它根据当前任务对文件进行语义排名，返回评分最高的候选文件和 suggested_reads。模型据此决定优先读哪些文件，避免盲目遍历。',
+}
+
+export const LEVEL_3_4_QUIZ: QuizQuestion = {
+  id: '3.4-q1', question: 'Agent 的 structured memory 在什么时候被检索？',
+  options: [{label:'A',text:'每次 tool call 之后'},{label:'B',text:'每次 run 开始时，通过 MemoryRetriever.search() 检索并注入为 harness context'},{label:'C',text:'只在用户显式要求时'}],
+  correctIndex: 1, explanation: 'Memory 检索发生在每次 run 开始时：先读 working_memory，再 MemoryRetriever.search(structured_memory)，再 search_relevant_memory(session)。结果合并后注入 ContextItem(kind="memory", priority=3)。',
+}
+
+export const LEVEL_3_5_QUIZ: QuizQuestion = {
+  id: '3.5-q1', question: '模型声称 final 但测试还没跑过。CompletionTracker 应该？',
+  options: [{label:'A',text:'相信模型，记录 final'},{label:'B',text:'拒绝 final，返回 plan_final_denied 或 verification_required'},{label:'C',text:'自动帮模型跑测试'}],
+  correctIndex: 1, explanation: 'CompletionTracker 是硬边界：未验证的编辑不能声称完成。Harness 不自动替模型做事，但必须阻止模型绕过完成条件。',
+}
+
+export const LEVEL_4_1_QUIZ: QuizQuestion = {
+  id: '4.1-q1', question: 'Replay 模式是如何工作的？',
+  options: [{label:'A',text:'重新调用 LLM API 执行相同任务'},{label:'B',text:'消费已有的 model_call_log.jsonl，回放记录的模型响应，不重复调用 API'},{label:'C',text:'用更小的模型重新执行'}],
+  correctIndex: 1, explanation: 'Replay 不重新调模型——它读取 model_call_log.jsonl 中记录的请求和响应快照，逐条重放。这保证了相同输入→相同输出的调试可复现性。',
+}
+
+export const LEVEL_4_2_QUIZ: QuizQuestion = {
+  id: '4.2-q1', question: 'Eval 评测的主要目的是什么？',
+  options: [{label:'A',text:'给 Agent 打分排名'},{label:'B',text:'量化 Agent 升级是否真的改进了行为，通过回归对比验证改进有效'},{label:'C',text:'替代人工测试'}],
+  correctIndex: 1, explanation: 'Eval 的核心是回归对比：升级前 vs 升级后在相同测试用例上的表现差异。它不是排名工具，而是"我的代码改动真的让 Agent 变好了吗"的验证手段。',
+}

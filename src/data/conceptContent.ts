@@ -281,3 +281,63 @@ export const LEVEL_3_2_CONCEPT = {
   conclusion: 'Plan-and-Execute vs ReAct 不是二选一。成熟系统混合两者：外层确定性workflow控制权限和完成条件，内层agentic loop让模型动态调整。',
   references: [{ title:'Plan-and-Solve', url:'https://arxiv.org/abs/2305.04091', source:'ICLR 2024' }, { title:'Building effective agents', url:'https://www.anthropic.com/engineering/building-effective-agents', source:'Anthropic' }],
 }
+
+export const LEVEL_3_3_CONCEPT = {
+  title: 'Coding Agent 项目探索',
+  subtitle: '理解陌生仓库 → inspect_repo/rank_repo_context → 精准读取',
+  sections: [
+    { heading: '探索三步骤', content: '1. inspect_repo → 项目结构/语言/符号\n2. rank_repo_context(task) → 候选文件+评分\n3. read_file → 读取真实代码窗口', type:'text' as const },
+    { heading: 'Repo Map', content: '本地缓存 .local_agent/repo_map.json。文件mtime/size/hash变更时自动增量刷新。记录确定性代码事实：文件角色、语言、符号、import。', type:'text' as const },
+    { heading: '典型探索顺序', content: 'rank_repo_context(task) → 候选文件+suggested_reads → read_file(窗口) → search_text(精确定位)', type:'code' as const },
+  ],
+  conclusion: 'Coding Agent 不需要每次重新扫描整个项目。RepoMap 缓存 + 按需探索让模型在最小上下文中找到关键代码。',
+  references: [{ title:'Aider repo map', url:'https://github.com/paul-gauthier/aider', source:'GitHub' }, { title:'SWE-agent', url:'https://arxiv.org/abs/2405.15793', source:'NeurIPS 2024' }],
+}
+
+export const LEVEL_3_4_CONCEPT = {
+  title: 'Memory 记忆架构',
+  subtitle: '工作记忆/语义记忆/情景记忆 — Agent 如何记住、检索和遗忘',
+  sections: [
+    { heading: 'Memory 分层', content: `工作记忆 (Working Memory): 当前对话上下文\n  → working_memory.md, 每次 run 结束后更新\n\n语义记忆 (Structured Memory): 可检索的知识条目\n  → memories.jsonl, MemoryEntry(type/scope/evidence/confidence)\n  → MemoryRetriever.search() → 关键词+语义检索\n\n情景记忆 (Session Summary): 历史对话摘要\n  → session_summary.md, compact 后保留最近 N 个 run`, type:'code' as const },
+    { heading: 'Memory 检索', content: '每次 run 开始时: read_working_memory → MemoryRetriever.search(structured_memory_path) → search_relevant_memory(session) → 注入 ContextItem(kind="memory")', type:'text' as const },
+    { heading: 'Memory 写入', content: 'run 结束时: update_working_memory(run_dir, memory_path) → write_run_memories(run_dir, structured_memory_path) → MemoryEntry 持久化到 memories.jsonl', type:'text' as const },
+  ],
+  conclusion: 'Memory 不是把所有历史塞进 context。它是分层存储 + 按需检索 + 结构化写入——Agent 在需要时才召回相关记忆。',
+  references: [{ title:'MemGPT', url:'https://arxiv.org/abs/2310.08560', source:'NeurIPS 2024' }, { title:'Building effective agents', url:'https://www.anthropic.com/engineering/building-effective-agents', source:'Anthropic' }],
+}
+
+export const LEVEL_3_5_CONCEPT = {
+  title: '完成条件与停止策略',
+  subtitle: 'RunBudget, TerminationPolicy, RunResult — Agent 何时、如何停止',
+  sections: [
+    { heading: '四层停止条件', content: '1. 模型声称 final → PlanController.check_final()\n2. 编辑有验证 → CompletionTracker\n3. 无进展循环 → repair_requires_progress\n4. 预算耗尽 → RunBudget(steps/model_calls/tool_calls)', type:'code' as const },
+    { heading: '不是僵硬状态机', content: 'Harness 不强制"读→改→测"顺序，但阻止未经验证的final声称、同一失败的空转重试、以及预算超额。', type:'text' as const },
+    { heading: 'RunResult 类型', content: 'success: 所有条件满足\nblocked: 预算耗尽但有证据\nfailed: 无法完成的错误\nexhausted: 达到 MAX_STEPS', type:'text' as const },
+  ],
+  conclusion: '真正的 Agent 不是"跑完就行"——Harness 通过多层停止条件确保 Agent 在正确的时候以正确的方式结束。',
+  references: [{ title:'Building effective agents', url:'https://www.anthropic.com/engineering/building-effective-agents', source:'Anthropic' }],
+}
+
+export const LEVEL_4_1_CONCEPT = {
+  title: '可观测性 Trace 与 Replay',
+  subtitle: 'JSONL 日志、trace span、checkpoint——定位 Agent 行为',
+  sections: [
+    { heading: 'Trace 体系', content: 'event_log.jsonl: 每步事件\nmodel_call_log.jsonl: 请求/响应快照\ntool_call_log.jsonl: 完整工具参数和结果\ntrace.jsonl: span 事件(父子/耗时/状态)\nrun_result.json: 最终状态/reason_code', type:'text' as const },
+    { heading: 'Checkpoint 与 Replay', content: 'checkpoint.json: 最近step/state/message digest/预算。replay 通过重放 model_call_log.jsonl 中的响应，不重复调用模型。用于调试和回归对比。', type:'text' as const },
+    { heading: '回放机制', content: 'replay 不重新跑 Agent——它消费已有的 model_call_log.jsonl 记录。相同输入 → 相同输出，保证调试可复现。', type:'text' as const },
+  ],
+  conclusion: '可观测性不是事后加日志，而是 Agent 运行时的基础设施——trace 让每一次 failure 都可定位，replay 让修复可验证。',
+  references: [{ title:'OpenHands', url:'https://arxiv.org/abs/2407.16741', source:'arXiv 2024' }],
+}
+
+export const LEVEL_4_2_CONCEPT = {
+  title: 'Evaluation 评测',
+  subtitle: 'eval_runner, 测试用例, 回归对比 — 量化 Agent 能力',
+  sections: [
+    { heading: 'Eval 结构', content: 'eval_cases.json: 任务列表\nrun_agent(task) → approval_log.jsonl + event_log + run_result.json\neval_runner 对比输出和预期，计算 pass/warn/fail', type:'text' as const },
+    { heading: '回归测试', content: '每次升级代码后，replay 之前的 eval run 并对比结果。相同模型+相同任务 → 应有相同或更好的结果。', type:'text' as const },
+    { heading: '评测维度', content: '任务完成率、工具选择准确性、错误恢复能力、token 使用效率。不是比模型大小，而是比 Agent 行为质量。', type:'text' as const },
+  ],
+  conclusion: 'Eval 不是给 Agent 打分排名——它量化 Agent 升级是否真的改进了行为。没有 eval 的 Agent 迭代是盲目的。',
+  references: [{ title:'SWE-bench', url:'https://arxiv.org/abs/2310.06770', source:'ICLR 2024' }, { title:'AgentBench', url:'https://arxiv.org/abs/2308.03688', source:'NeurIPS 2023' }],
+}

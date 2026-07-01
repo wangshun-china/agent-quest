@@ -9,9 +9,15 @@ import l23 from './zone1-core/2.3-code-edit/index'
 import l24 from './zone1-core/2.4-verification/index'
 import l31 from './zone1-core/3.1-context-engineering/index'
 import l32 from './zone1-core/3.2-planning/index'
+import l33 from './zone1-core/3.3-project-explore/index'
+import l34 from './zone1-core/3.4-memory/index'
+import l35 from './zone1-core/3.5-completion/index'
+import l41 from './zone1-core/4.1-observability/index'
+import l42 from './zone1-core/4.2-evaluation/index'
 
 export const LEVEL_REGISTRY: LevelConfig[] = [
   l11, l12, l13, l14,
   l21, l22, l23, l24,
-  l31, l32,
+  l31, l32, l33, l34, l35,
+  l41, l42,
 ]
