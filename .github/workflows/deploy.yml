@@ -84,18 +84,19 @@ jobs:
           IMAGE_REF="$IMAGE_REPOSITORY:$IMAGE_TAG"
           docker pull "$IMAGE_REF"
 
+          PROJECT_NAME="$(printf '%s' "${{ github.event.repository.name }}" |
+            tr '[:upper:]' '[:lower:]' |
+            sed 's/[^a-z0-9_-]/-/g')"
           port_owners="$(docker ps \
             --filter "publish=$APP_PORT" \
-            --format '{{.ID}} {{.Names}} {{.Image}} {{.Ports}}')"
+            --format '{{.ID}}\t{{.Label "com.docker.compose.project"}}\t{{.Names}}\t{{.Image}}\t{{.Ports}}' |
+            awk -F '\t' -v project="$PROJECT_NAME" '$2 != project')"
           if [[ -n "$port_owners" ]]; then
             echo "Port $APP_PORT is currently occupied:" >&2
             printf '%s\n' "$port_owners" >&2
             exit 1
           fi
 
-          PROJECT_NAME="$(printf '%s' "${{ github.event.repository.name }}" |
-            tr '[:upper:]' '[:lower:]' |
-            sed 's/[^a-z0-9_-]/-/g')"
           DEPLOY_DIR="/opt/$PROJECT_NAME"
           mkdir -p "$DEPLOY_DIR"
           chmod 700 "$DEPLOY_DIR"
