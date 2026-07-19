@@ -18,7 +18,7 @@ env:
   GHCR_REGISTRY: ghcr.io
   GHCR_IMAGE_NAME: ${{ github.repository }}
   IMAGE_TAG: ${{ github.sha }}
-  APP_PORT: ${{ vars.APP_PORT || '10000' }}
+  APP_PORT: ${{ vars.APP_PORT || '10001' }}
 
 jobs:
   build-and-push:
@@ -107,7 +107,7 @@ jobs:
               image: ${IMAGE_REF:?IMAGE_REF is required}
               restart: unless-stopped
               ports:
-                - "${APP_PORT:-10000}:80"
+                - "${APP_PORT:-10001}:80"
               logging:
                 driver: json-file
                 options:
