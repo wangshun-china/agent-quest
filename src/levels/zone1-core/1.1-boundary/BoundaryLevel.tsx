@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import LevelLayout from '../../../components/layout/LevelLayout'
 import ConceptCard from '../../../components/concept/ConceptCard'
-import TraceStream from '../../../components/pipeline/TraceStream'
+import TransparentPipeline from '../../../components/pipeline/TransparentPipeline'
 import Button from '../../../components/ui/Button'
 import { useProgressStore } from '../../../store/progressStore'
 import { useConfigStore } from '../../../store/configStore'
@@ -10,6 +10,11 @@ import { useTraceStore, createTraceEvent } from '../../../store/traceStore'
 import { useContextMemoryStore } from '../../../store/contextMemoryStore'
 import { LEVEL_1_1_CONCEPT } from '../../../data/conceptContent'
 import { LEVEL_1_1_QUIZ } from '../../../data/quizQuestions'
+import {
+  buildSimScriptPipeline,
+  emptyPipeline,
+  type GlassPipeline,
+} from '../../../harness'
 
 // ─── 忠于 labs/local-agent-python 的实际数据 ───
 
@@ -71,6 +76,10 @@ export default function BoundaryLevel() {
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null)
   const [quizPassed, setQuizPassed] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
+  const [glass, setGlass] = useState<GlassPipeline>(() =>
+    emptyPipeline('点发送推进模拟——右侧透明管道会点亮 Context → Model → Policy → Tool → Observation'),
+  )
+  const [glassHistory, setGlassHistory] = useState<GlassPipeline[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { return () => { clearEvents(); resetCM() } }, [])
@@ -116,6 +125,16 @@ export default function BoundaryLevel() {
       { role: 'user', content: text },
       { role: 'assistant', content: resp.assistant, toolCall: resp.tool, toolResult: resp.toolResult },
     ])
+    const pipe = buildSimScriptPipeline({
+      step: simStep + 1,
+      user: text,
+      assistant: resp.assistant,
+      tool: resp.tool,
+      toolArgs: resp.toolArgs,
+      toolResult: resp.toolResult,
+    })
+    setGlass(pipe)
+    setGlassHistory((h) => [...h, pipe])
     setSimStep((s) => s + 1)
   }
 
@@ -446,7 +465,14 @@ memory 注入为 harness context item (kind="relevant_memory", priority=3)`)
           )}
         </div>
       }
-      pipeline={<TraceStream />}
+      pipeline={
+        <TransparentPipeline
+          pipeline={glass}
+          history={glassHistory}
+          onSelectHistory={(i) => setGlass(glassHistory[i])}
+          preferExpandId={glass.nodes.some((n) => n.id === 'observation') ? 'observation' : 'intent'}
+        />
+      }
     />
   )
 }

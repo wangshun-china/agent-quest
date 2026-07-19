@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import LevelLayout from '../../../components/layout/LevelLayout'
 import ConceptCard from '../../../components/concept/ConceptCard'
-import TraceStream from '../../../components/pipeline/TraceStream'
+import TransparentPipeline from '../../../components/pipeline/TransparentPipeline'
 import Button from '../../../components/ui/Button'
 import { useProgressStore } from '../../../store/progressStore'
 import { useConfigStore } from '../../../store/configStore'
@@ -10,6 +10,11 @@ import { useTraceStore, createTraceEvent } from '../../../store/traceStore'
 import { useContextMemoryStore } from '../../../store/contextMemoryStore'
 import { LEVEL_1_2_CONCEPT } from '../../../data/conceptContent'
 import { LEVEL_1_2_QUIZ } from '../../../data/quizQuestions'
+import {
+  buildAgentStepPipeline,
+  emptyPipeline,
+  type GlassPipeline,
+} from '../../../harness'
 
 const SYSTEM_PROMPT = `You are a local coding agent.
 
@@ -117,6 +122,10 @@ export default function ReactLoopLevel() {
   const [quizPhase, setQuizPhase] = useState(false)
   const [selectedQuiz, setSelectedQuiz] = useState<number | null>(null)
   const [quizPassed, setQuizPassed] = useState(false)
+  const [glass, setGlass] = useState<GlassPipeline>(() =>
+    emptyPipeline('选择决策选项——正确路径会点亮 ReAct 管道；错误选择会在中间截断并解释原因'),
+  )
+  const [glassHistory, setGlassHistory] = useState<GlassPipeline[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { return () => { clearEvents(); resetCM() } }, [])
@@ -157,6 +166,21 @@ export default function ReactLoopLevel() {
       { role: 'user', content: SCENES[scene].situation },
       { role: 'assistant', content: opt.correct ? `✅ ${opt.feedback}` : `❌ ${opt.feedback}` },
     ])
+
+    const pipe = buildAgentStepPipeline({
+      step: scene + 1,
+      situation: SCENES[scene].situation,
+      choiceLabel: opt.label,
+      choiceText: opt.text,
+      correct: opt.correct,
+      feedback: opt.feedback,
+      tool: opt.tool || null,
+      toolArgs: opt.tool ? { path: 'calc.py' } : null,
+      toolResult: opt.tool ? simulateTool(opt.tool, {}) : null,
+      assistantText: opt.feedback,
+    })
+    setGlass(pipe)
+    setGlassHistory((h) => [...h, pipe])
   }
 
   const nextScene = () => {
@@ -437,7 +461,20 @@ export default function ReactLoopLevel() {
           )}
         </div>
       }
-      pipeline={<TraceStream />}
+      pipeline={
+        <TransparentPipeline
+          pipeline={glass}
+          history={glassHistory}
+          onSelectHistory={(i) => setGlass(glassHistory[i])}
+          preferExpandId={
+            glass.branch === 'wrong_choice'
+              ? 'halt'
+              : glass.nodes.some((n) => n.id === 'observation')
+                ? 'observation'
+                : 'intent'
+          }
+        />
+      }
     />
   )
 }

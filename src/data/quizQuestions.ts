@@ -60,21 +60,42 @@ export const LEVEL_2_1_QUIZ: QuizQuestion = {
 }
 
 export const LEVEL_2_2_QUIZ: QuizQuestion = {
-  id: '2.2-q1', question: '模型尝试调用 run_command("rm -rf /")。RuntimePolicy 应该？',
-  options: [{label:'A',text:'allow，相信模型的判断'},{label:'B',text:'deny，高危操作+未知程序路径=直接拒绝'},{label:'C',text:'ask，让用户决定'}],
-  correctIndex: 1, explanation: 'rm -rf 是高危操作且使用了 root 路径，RuntimePolicy 应根据 risk=high 直接 deny。这不是问用户的问题——Sandbox 不应允许这种操作。',
+  id: '2.2-q1',
+  question: 'workspace profile 下模型调用 run_command(program="rm", args=["-rf","/"])。RuntimePolicy 应？',
+  options: [
+    { label: 'A', text: 'allow，相信模型' },
+    { label: 'B', text: 'deny，code=program_not_allowed（command_registry 拒绝未知程序）' },
+    { label: 'C', text: 'ask，一律交给用户审批' },
+  ],
+  correctIndex: 1,
+  explanation:
+    'lab 中 execute 先检查 PermissionProfile.allow_command，再 check_command_rules。rm 不在 python/node/npm allowlist → DENY program_not_allowed。这不是 ASK：Approval 只处理 Policy 已判定为 ask 的调用。允许的 python -m unittest 才会 command_requires_approval。',
 }
 
 export const LEVEL_2_3_QUIZ: QuizQuestion = {
-  id: '2.3-q1', question: '模型想直接 write_file 到已有文件但从未 read_file 查看过。Harness 应该？',
-  options: [{label:'A',text:'允许写入，模型知道内容就行'},{label:'B',text:'返回 read_before_edit_required'},{label:'C',text:'自动先帮模型读一遍文件'}],
-  correctIndex: 1, explanation: 'read_before_edit 是硬性要求——对已有文件编辑前必须先观察。Harness 检查文件 size/mtime/sha1，不一致则拒绝编辑。',
+  id: '2.3-q1',
+  question: '模型要对已有 calc.py 做 replace_text，但 observed_files 里没有该 path。Harness 应？',
+  options: [
+    { label: 'A', text: '允许写入，模型声称知道内容即可' },
+    { label: 'B', text: 'DENY，稳定 code=read_before_edit_required' },
+    { label: 'C', text: '自动先帮模型 read_file 再静默写入' },
+  ],
+  correctIndex: 1,
+  explanation:
+    '主题卡 1.10 / runtime_policy._check_edit_targets：已有文件必须先被观察；code 为 read_before_edit_required。若观察后 size/mtime/sha1 变化则为 file_changed_since_read。Harness 不静默代读代写。',
 }
 
 export const LEVEL_2_4_QUIZ: QuizQuestion = {
-  id: '2.4-q1', question: '模型连续3次以相同参数运行同一失败测试。retry_controller 应该？',
-  options: [{label:'A',text:'允许重试，说不定下次就过了'},{label:'B',text:'返回 repair_requires_progress'},{label:'C',text:'自动修改代码再试'}],
-  correctIndex: 1, explanation: 'fingerprint 匹配同一失败模式且无新观察/新编辑 → repair_requires_progress。Harness 不替模型修代码，但也不让无信息增量的循环浪费预算。',
+  id: '2.4-q1',
+  question: '同一失败验证命令在无新 inspect/edit 时再次 run_command。RepairController.guard_tool 应？',
+  options: [
+    { label: 'A', text: '允许重试，或许偶发能过' },
+    { label: 'B', text: '拒绝，code=repair_requires_progress' },
+    { label: 'C', text: '自动改代码后再跑' },
+  ],
+  correctIndex: 1,
+  explanation:
+    'lab repair_controller：latest_failed_command 相同且 new_evidence_since_failure / new_edit_since_failure 均为 false → allowed=false, code=repair_requires_progress。指纹仅本地使用；模型看到 repair_hint。Harness 不替模型改代码。',
 }
 
 export const LEVEL_3_1_QUIZ: QuizQuestion = {
@@ -108,9 +129,16 @@ export const LEVEL_3_5_QUIZ: QuizQuestion = {
 }
 
 export const LEVEL_4_1_QUIZ: QuizQuestion = {
-  id: '4.1-q1', question: 'Replay 模式是如何工作的？',
-  options: [{label:'A',text:'重新调用 LLM API 执行相同任务'},{label:'B',text:'消费已有的 model_call_log.jsonl，回放记录的模型响应，不重复调用 API'},{label:'C',text:'用更小的模型重新执行'}],
-  correctIndex: 1, explanation: 'Replay 不重新调模型——它读取 model_call_log.jsonl 中记录的请求和响应快照，逐条重放。这保证了相同输入→相同输出的调试可复现性。',
+  id: '4.1-q1',
+  question: 'lab / 主题卡 1.14 中的 Replay 语义是？',
+  options: [
+    { label: 'A', text: '重新调用 LLM API 再跑一遍任务' },
+    { label: 'B', text: '只读消费 event_log / model_call_log / trace 等记录，解释决策；不重复调模型，也非工具副作用重执行' },
+    { label: 'C', text: '换成更小模型做 deterministic re-execution' },
+  ],
+  correctIndex: 1,
+  explanation:
+    '主题卡明确：当前 replay 是只读复盘（replay.py 读 event_log、run_result、trace），不做 deterministic re-execution，也不重新调模型。trace span 另可用于 eval 指标提取。',
 }
 
 export const LEVEL_4_2_QUIZ: QuizQuestion = {

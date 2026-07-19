@@ -28,6 +28,9 @@ export default function TopBar({ title, levelNumber, mode, onModeChange }: TopBa
           <span className="text-[#E5E5E5]">|</span>
           <span className="text-xs text-[#9B9B9B] font-mono">{levelNumber}</span>
           <h1 className="text-sm font-semibold text-[#1A1A1A]">{title}</h1>
+          <span className="hidden sm:inline text-[10px] px-1.5 py-0.5 rounded bg-[#1A1A2E] text-[#A8B4FF]">
+            透明探索
+          </span>
         </div>
 
         <div className="flex items-center gap-3">

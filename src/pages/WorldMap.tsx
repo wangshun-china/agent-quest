@@ -11,6 +11,16 @@ const ZONES = [
   { id: 5, name: '进阶扩展', subtitle: 'Advanced', icon: '🚀' },
 ]
 
+/** Levels with full transparent glass pipeline (recommended path) */
+const GLASS_LEVELS = new Set([
+  '1.1-boundary',
+  '1.2-react-loop',
+  '2.2-runtime-policy',
+  '2.3-code-edit',
+  '2.4-verification',
+  '4.1-observability',
+])
+
 export default function WorldMap() {
   const navigate = useNavigate()
   const isCompleted = useProgressStore((s) => s.isCompleted)
@@ -19,8 +29,12 @@ export default function WorldMap() {
     <div className="min-h-screen bg-[#FAFAFA]">
       <div className="max-w-4xl mx-auto pt-16 pb-8 px-6 text-center">
         <h1 className="text-[28px] font-bold text-[#1A1A1A] mb-2">Agent Quest</h1>
-        <p className="text-sm text-[#6B6B6B] max-w-md mx-auto">
-          用关卡方式探索 Agent Harness 的内部工作原理。每个关卡展示 Agent 执行闭环中的一个核心概念。
+        <p className="text-sm text-[#6B6B6B] max-w-lg mx-auto leading-relaxed">
+          透明探索版：不只是读概念——右侧管道把 Model 意图与 Harness 硬边界拆开，
+          点击节点看 Policy / 指纹 / Repair / Trace 的完整内部数据。
+        </p>
+        <p className="text-xs text-[#9B9B9B] mt-2">
+          推荐路径：1.1 → 1.2 → 2.2 → 2.3 → 2.4 → 4.1（标「透明」的关卡右侧有可点开管道）
         </p>
       </div>
 
@@ -52,6 +66,7 @@ export default function WorldMap() {
                 {zoneLevels.map((level) => {
                   const completed = isCompleted(level.id)
                   const locked = false
+                  const isGlass = GLASS_LEVELS.has(level.id)
 
                   return (
                     <motion.button
@@ -65,7 +80,9 @@ export default function WorldMap() {
                           ? 'bg-[#F5F5F5] border-[#E5E5E5] cursor-not-allowed opacity-60'
                           : completed
                             ? 'bg-white border-[#2DA44E]/30 hover:border-[#2DA44E]/60 cursor-pointer'
-                            : 'bg-white border-[#E5E5E5] hover:border-[#5E6AD2]/40 cursor-pointer'
+                            : isGlass
+                              ? 'bg-white border-[#5E6AD2]/35 hover:border-[#5E6AD2]/70 cursor-pointer shadow-sm'
+                              : 'bg-white border-[#E5E5E5] hover:border-[#5E6AD2]/40 cursor-pointer'
                         }
                       `}
                     >
@@ -81,16 +98,23 @@ export default function WorldMap() {
                       </div>
                       <h3 className="text-sm font-semibold text-[#1A1A1A] mb-0.5">{level.title}</h3>
                       <p className="text-xs text-[#9B9B9B]">{level.description}</p>
-                      <span className={`inline-block mt-2 text-[10px] px-1.5 py-0.5 rounded ${
-                        level.type === 'concept' ? 'bg-[#F0F0F0] text-[#9B9B9B]' :
-                        level.type === 'config' ? 'bg-[#5E6AD2]/10 text-[#5E6AD2]' :
-                        level.type === 'decision' ? 'bg-[#D48C20]/10 text-[#D48C20]' :
-                        'bg-[#D23B3B]/10 text-[#D23B3B]'
-                      }`}>
-                        {level.type === 'concept' ? '概念' :
-                         level.type === 'config' ? '实验' :
-                         level.type === 'decision' ? '决策' : '调试'}
-                      </span>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded ${
+                          level.type === 'concept' ? 'bg-[#F0F0F0] text-[#9B9B9B]' :
+                          level.type === 'config' ? 'bg-[#5E6AD2]/10 text-[#5E6AD2]' :
+                          level.type === 'decision' ? 'bg-[#D48C20]/10 text-[#D48C20]' :
+                          'bg-[#D23B3B]/10 text-[#D23B3B]'
+                        }`}>
+                          {level.type === 'concept' ? '概念' :
+                           level.type === 'config' ? '实验' :
+                           level.type === 'decision' ? '决策' : '调试'}
+                        </span>
+                        {isGlass && (
+                          <span className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-[#1A1A2E] text-[#A8B4FF]">
+                            透明
+                          </span>
+                        )}
+                      </div>
                     </motion.button>
                   )
                 })}

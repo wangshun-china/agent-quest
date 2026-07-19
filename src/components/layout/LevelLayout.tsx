@@ -27,7 +27,8 @@ function loadSizes(): { leftW: number; rightRatio: number } {
       }
     }
   } catch { /* */ }
-  return { leftW: 260, rightRatio: 0.5 }
+  // Prefer a wider glass pipeline column for transparent exploration
+  return { leftW: 240, rightRatio: 0.48 }
 }
 
 function saveSizes(leftW: number, rightRatio: number) {

@@ -220,42 +220,116 @@ export const LEVEL_2_1_CONCEPT = {
 
 export const LEVEL_2_2_CONCEPT = {
   title: 'Runtime Policy 权限审批',
-  subtitle: 'allow/ask/deny — Harness的安全决策边界',
+  subtitle: 'Policy / Approval / Sandbox 三分：RuntimePolicy 是 allow·ask·deny 的唯一决策者',
   sections: [
-    { heading: '三层决策', content: 'RuntimePolicy 根据 ToolSpec.risk + PermissionProfile 决策:\n• allow: 低风险 inspect 类工具，直接放行\n• ask: 中等风险 edit 类工具，交给 ApprovalController\n• deny: 高风险操作或未知程序，直接拒绝', type:'text' as const },
-    { heading: '不是 system prompt', content: 'Policy 是代码级 enforcement，不是 prompt 建议。模型不能通过"说服"来绕过——RuntimePolicy 在每次 tool_call 前都重新检查。', type:'text' as const },
-    { heading: '命令安全', content: 'run_command 使用 program + args 且 shell=False。这消除了 shell 操作符解释攻击，但应用层路径检查不是 OS Sandbox。', type:'text' as const },
+    {
+      heading: '三种控制不是一回事',
+      content: `Policy   规则上如何处理本次调用
+Approval Policy 要求 ask 时由谁确认
+Sandbox  技术上进程最多能访问什么
+
+Prompt 中的「不要做」不是安全边界。模型只提出意图，Harness 用确定性代码决定是否执行。`,
+      type: 'code' as const,
+    },
+    {
+      heading: '决策输入（lab RuntimePolicy.check_tool）',
+      content: '• ToolSpec.effects（inspect / edit / execute / plan）与 risk\n• PermissionProfile：read-only | workspace（read / workspace_write / command / network）\n• AgentState（重复调用、是否已 inspect、path 级 observed_files）\n• command_registry 对 program+args 的规则（未知程序、内联 -c、-e、绝对路径）\n• DENY 带稳定 code；ALLOW 跳过审批；仅 ASK 进入 ApprovalController',
+      type: 'text' as const,
+    },
+    {
+      heading: '常见稳定 code',
+      content: '',
+      type: 'table' as const,
+      rows: [
+        { left: 'read_allowed', right: 'inspect + profile.allow_read', highlight: 'harness' as const },
+        { left: 'workspace_write_requires_approval', right: 'edit + 写权限 + 读后编辑通过 → ASK', highlight: 'harness' as const },
+        { left: 'command_requires_approval', right: 'execute + 允许程序 → ASK', highlight: 'harness' as const },
+        { left: 'program_not_allowed / inline_code_not_allowed', right: 'command_registry DENY', highlight: 'harness' as const },
+        { left: 'command_not_allowed / workspace_write_not_allowed', right: 'Profile 能力不足 DENY', highlight: 'harness' as const },
+      ],
+    },
+    {
+      heading: '结构化命令',
+      content: 'run_command 使用 program + args 且 subprocess shell=False。& | > 等只是参数字符。应用层 allowlist ≠ OS Sandbox（生产隔离见 1.19）。',
+      type: 'text' as const,
+    },
   ],
-  conclusion: 'Sandbox 决定技术上能做什么，Policy 决定何时允许做，Approval 决定何时必须停下来问。',
-  references: [{ title:'Codex Approvals', url:'https://developers.openai.com/codex/agent-approvals-security', source:'OpenAI' }],
+  conclusion: 'RuntimePolicy 是唯一的 allow/ask/deny 决策器；Approval 只做 reviewer。不要用 risk 标签简化成 safe→allow / high→deny——lab 对允许的 python 命令仍是 ASK，对未知 program 才是 DENY。',
+  references: [
+    { title: 'Codex Approvals', url: 'https://developers.openai.com/codex/agent-approvals-security', source: 'OpenAI' },
+    { title: 'Codex sandboxing', url: 'https://developers.openai.com/codex/concepts/sandboxing', source: 'OpenAI' },
+  ],
 }
 
 export const LEVEL_2_3_CONCEPT = {
   title: '代码编辑与 Patch 系统',
-  subtitle: '读后编辑、精确替换、patch创建与回滚',
+  subtitle: '模型决定编辑意图；Harness 约束目标文件、preview、approval、事务写入与验证',
   sections: [
-    { heading: '编辑三工具', content: 'write_file（全覆盖）、replace_text（精确替换）、apply_patch（unified diff）。区别在于精确度和安全性。', type:'text' as const },
-    { heading: 'read-before-edit 机制', content: '对已有文件，Harness要求模型已通过inspect工具观察过该文件，且当前size/mtime/sha1与观察时一致。否则返回read_before_edit_required或file_changed_since_read。', type:'text' as const },
-    { heading: '回滚保护', content: 'apply_patch支持create/update/delete。写入阶段保留旧文件快照，普通写入异常自动回滚已触碰目标。', type:'text' as const },
+    {
+      heading: '编辑三工具',
+      content: 'write_file（创建/覆盖）、replace_text（唯一精确替换）、apply_patch（unified diff，create/update/delete）。不做 fuzzy matching：上下文失败 → patch_context_mismatch → 模型重新 read。',
+      type: 'text' as const,
+    },
+    {
+      heading: 'path 级 read-before-edit',
+      content: `AgentState.observed_files 记录成功 inspect 的指纹：
+  path / size / mtime_ns / sha1
+
+对已有文件：
+  未观察 → DENY code=read_before_edit_required
+  观察后文件已变 → DENY code=file_changed_since_read
+  新建文件（指纹不存在）→ 可进入审批 ASK`,
+      type: 'code' as const,
+    },
+    {
+      heading: '目标路径提取',
+      content: 'write_file/replace_text → path；apply_patch → patch headers 中的 create/update/delete target。检查发生在 RuntimePolicy，不是 system prompt。',
+      type: 'text' as const,
+    },
   ],
-  conclusion: '编辑不是"信任模型写正确的文件"——Harness在每次编辑前检查前置条件，编辑后验证结果。',
-  references: [{ title:'Aider', url:'https://github.com/paul-gauthier/aider', source:'GitHub' }],
+  conclusion: '只要求「做过某种 inspect」不够——必须看过将要编辑的具体文件，且指纹仍新鲜。Harness 不猜测模型想改哪里。',
+  references: [
+    { title: 'Aider', url: 'https://github.com/paul-gauthier/aider', source: 'GitHub' },
+    { title: 'OpenAI Apply Patch', url: 'https://developers.openai.com/codex', source: 'OpenAI' },
+  ],
 }
 
 export const LEVEL_2_4_CONCEPT = {
   title: '验证反馈与自动修复',
-  subtitle: '测试失败 → 反馈 → 修复 → 重测，直到通过或预算耗尽',
+  subtitle: '失败 observation + 本地指纹防空转；不强制僵硬「读→改→测」状态机',
   sections: [
-    { heading: '验证闭环', content: `1. 模型完成编辑
-2. run_command 执行验证
-3. 失败 → verification_feedback 生成带 repair_hint 的摘要
-4. 模型根据 hint 调整代码
-5. 重新验证`, type:'code' as const },
-    { heading: 'repair_controller', content: 'Harness保存失败指纹（规范化命令+退出码+关键错误行）。如果模型没有新观察、新搜索或新编辑就重跑同一条失败验证，返回repair_requires_progress。', type:'text' as const },
-    { heading: '指纹只在本地', content: '失败指纹是Harness内部索引，不暴露给模型。模型看到的是错误摘要和repair_hint（首次/同类/编辑后仍失败/新失败模式）。', type:'text' as const },
+    {
+      heading: '职责划分',
+      content: '',
+      type: 'table' as const,
+      rows: [
+        { left: '判断失败原因 / 选下一步', right: '模型', highlight: 'model' as const },
+        { left: '有界 verification observation', right: 'Harness', highlight: 'harness' as const },
+        { left: '未验证禁止成功 final', right: 'Harness', highlight: 'harness' as const },
+        { left: '无进展重复失败验证', right: 'Harness → repair_requires_progress', highlight: 'harness' as const },
+      ],
+    },
+    {
+      heading: 'RepairController',
+      content: `stream_agent 在 run_command 前 guard_tool：
+  同一 latest_failed_command 且无 new_evidence / new_edit
+  → tool_error code=repair_requires_progress
+
+失败指纹（本地）：normalize(command) + returncode + 关键错误行
+模型只看到 repair_hint，不看到 fingerprint 哈希。`,
+      type: 'code' as const,
+    },
+    {
+      heading: '什么算进展',
+      content: '成功的 inspect（读/搜/repo map）→ new_evidence_since_failure；成功的 edit → new_edit_since_failure。不强制固定工具顺序；不因相同摘要出现两次就机械停止。',
+      type: 'text' as const,
+    },
   ],
-  conclusion: 'Reflexion 证明语言反馈可以改善后续尝试，但要避免空转——repair_controller 确保每次重试都有信息增量。',
-  references: [{ title:'Reflexion', url:'https://arxiv.org/abs/2303.11366', source:'ICLR 2023' }],
+  conclusion: '语言反馈可改善后续尝试（Reflexion），但必须禁止无信息增量的验证空转。指纹是 Harness 索引，不是 prompt。',
+  references: [
+    { title: 'Reflexion', url: 'https://arxiv.org/abs/2303.11366', source: 'ICLR 2023' },
+    { title: 'SWE-agent ACI', url: 'https://arxiv.org/abs/2405.15793', source: 'NeurIPS 2024' },
+  ],
 }
 
 export const LEVEL_3_1_CONCEPT = {
@@ -320,14 +394,33 @@ export const LEVEL_3_5_CONCEPT = {
 
 export const LEVEL_4_1_CONCEPT = {
   title: '可观测性 Trace 与 Replay',
-  subtitle: 'JSONL 日志、trace span、checkpoint——定位 Agent 行为',
+  subtitle: '没有 trace 就无法判断 Agent 为何成败；replay 是只读复盘，不是重新调模型',
   sections: [
-    { heading: 'Trace 体系', content: 'event_log.jsonl: 每步事件\nmodel_call_log.jsonl: 请求/响应快照\ntool_call_log.jsonl: 完整工具参数和结果\ntrace.jsonl: span 事件(父子/耗时/状态)\nrun_result.json: 最终状态/reason_code', type:'text' as const },
-    { heading: 'Checkpoint 与 Replay', content: 'checkpoint.json: 最近step/state/message digest/预算。replay 通过重放 model_call_log.jsonl 中的响应，不重复调用模型。用于调试和回归对比。', type:'text' as const },
-    { heading: '回放机制', content: 'replay 不重新跑 Agent——它消费已有的 model_call_log.jsonl 记录。相同输入 → 相同输出，保证调试可复现。', type:'text' as const },
+    {
+      heading: '日志事实源',
+      content: `event_log.jsonl     用户消息 / model_call / approval / tool_call / final
+model_call_log.jsonl 请求与响应快照
+tool_call_log.jsonl  完整工具参数与结果
+trace.jsonl          span（trace_id / span_id / parent / duration / status）
+run_result.json      终态与 reason_code`,
+      type: 'code' as const,
+    },
+    {
+      heading: 'Replay 语义（主题卡 1.14 / lab replay.py）',
+      content: '• 只读：消费已有 jsonl，解释决策与时间线\n• 不重新调用 LLM API\n• 不做 deterministic re-execution（不重放工具副作用）\n• 可供 eval 从 span 提取耗时等指标',
+      type: 'text' as const,
+    },
+    {
+      heading: '为什么需要',
+      content: '比较一次升级改善的是模型、工具、策略还是碰巧通过。事件应有 step/call id；完整原文与模型可见摘要可分离。',
+      type: 'text' as const,
+    },
   ],
-  conclusion: '可观测性不是事后加日志，而是 Agent 运行时的基础设施——trace 让每一次 failure 都可定位，replay 让修复可验证。',
-  references: [{ title:'OpenHands', url:'https://arxiv.org/abs/2407.16741', source:'arXiv 2024' }],
+  conclusion: 'Trace 是调试、记忆、评测、成本的共同事实来源。本关用真实 event_log.jsonl 步进，体会「看日志定位」而非再聊一次。',
+  references: [
+    { title: 'OpenHands', url: 'https://arxiv.org/abs/2407.16741', source: 'arXiv 2024' },
+    { title: 'Codex documentation', url: 'https://developers.openai.com/codex', source: 'OpenAI' },
+  ],
 }
 
 export const LEVEL_4_2_CONCEPT = {
