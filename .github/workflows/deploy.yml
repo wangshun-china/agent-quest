@@ -109,11 +109,20 @@ jobs:
               restart: unless-stopped
               ports:
                 - "${APP_PORT:-10001}:80"
+              networks:
+                gateway:
+                  aliases:
+                    - agent-quest
               logging:
                 driver: json-file
                 options:
                   max-size: 10m
                   max-file: "3"
+
+          networks:
+            gateway:
+              external: true
+              name: wangshun-portfolio_default
           COMPOSE_EOF
 
           export IMAGE_REF APP_PORT
