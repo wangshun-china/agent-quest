@@ -107,12 +107,12 @@ export default function LevelLayout({
   }, [leftW, rightRatio])
 
   return (
-    <div className="h-screen flex flex-col bg-[#FAFAFA]">
+    <div className="h-screen flex flex-col mesh-bg">
       <TopBar title={title} levelNumber={levelNumber} mode={mode} onModeChange={onModeChange} />
 
       <div ref={containerRef} className="flex-1 flex overflow-hidden">
         {/* Left: Concept */}
-        <div className="shrink-0 overflow-y-auto p-4" style={{ width: leftW }}>
+        <div className="shrink-0 overflow-y-auto p-3 sm:p-4 pretty-scroll bg-white/50 border-r border-[#E4E7F4]/90" style={{ width: leftW }}>
           {conceptCard}
         </div>
 
@@ -120,15 +120,23 @@ export default function LevelLayout({
 
         {/* Center + Right: flex split */}
         <div className="flex-1 flex overflow-hidden min-w-0">
-          {/* Center: Chat */}
-          <div className="overflow-y-auto p-6 min-w-0" style={{ width: `${(1 - rightRatio) * 100}%` }}>
+          {/* Center: Simulation */}
+          <div className="overflow-y-auto p-4 sm:p-6 min-w-0 pretty-scroll" style={{ width: `${(1 - rightRatio) * 100}%` }}>
             {simulation}
           </div>
 
           <Resizer onMouseDown={onRightMouseDown} />
 
-          {/* Right: Pipeline */}
-          <div className="overflow-y-auto p-4 min-w-0" style={{ width: `${rightRatio * 100}%`, minWidth: MIN_RIGHT }}>
+          {/* Right: Glass pipeline */}
+          <div
+            className="overflow-y-auto p-3 sm:p-4 min-w-0 pretty-scroll border-l border-[#E4E7F4]/90"
+            style={{
+              width: `${rightRatio * 100}%`,
+              minWidth: MIN_RIGHT,
+              background:
+                'linear-gradient(165deg, rgba(248,249,255,0.98) 0%, rgba(236,239,252,0.92) 55%, rgba(242,244,250,0.95) 100%)',
+            }}
+          >
             {pipeline}
           </div>
         </div>

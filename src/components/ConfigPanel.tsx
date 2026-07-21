@@ -28,7 +28,14 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
     setTestStatus('testing')
     setTestMsg('')
     try {
-      const res = await fetch(`${urlInput}/chat/completions`, {
+      // Same rewrite as liveAgent (dev proxy avoids CORS)
+      let base = urlInput.replace(/\/$/, '')
+      if (import.meta.env.DEV) {
+        if (base.includes('dashscope.aliyuncs.com')) base = '/llm-proxy/dashscope'
+        else if (base.includes('api.openai.com')) base = '/llm-proxy/openai'
+        else if (base.includes('api.deepseek.com')) base = '/llm-proxy/deepseek'
+      }
+      const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -37,20 +44,25 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
         body: JSON.stringify({
           model: modelInput,
           messages: [{ role: 'user', content: 'hi' }],
-          max_tokens: 5,
+          max_tokens: 8,
         }),
       })
       if (res.ok) {
+        const data = await res.json()
+        const reply = data?.choices?.[0]?.message?.content || ''
         setTestStatus('ok')
-        setTestMsg('连接成功')
+        setTestMsg(`连接成功 via ${base}${reply ? ` · 回复: ${String(reply).slice(0, 40)}` : ''}`)
       } else {
         const err = await res.text()
         setTestStatus('fail')
-        setTestMsg(`HTTP ${res.status}: ${err.slice(0, 120)}`)
+        setTestMsg(`HTTP ${res.status}: ${err.slice(0, 160)}`)
       }
     } catch (e: unknown) {
       setTestStatus('fail')
-      setTestMsg(e instanceof Error ? e.message : '网络错误')
+      setTestMsg(
+        (e instanceof Error ? e.message : '网络错误') +
+          '（若 Failed to fetch：请用 npm run dev 并保存后重试「测试连接」）',
+      )
     }
   }
 

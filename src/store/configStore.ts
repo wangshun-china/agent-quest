@@ -17,9 +17,10 @@ export const useConfigStore = create<ConfigState>()(
   persist(
     (set, get) => ({
       apiKey: '',
-      apiBaseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o',
-      defaultMode: 'replay',
+      // DashScope OpenAI-compatible; in `npm run dev` browser calls are rewritten to /llm-proxy/*
+      apiBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen3.6-27b',
+      defaultMode: 'live',
       setApiKey: (apiKey) => set({ apiKey }),
       setApiBaseUrl: (apiBaseUrl) => set({ apiBaseUrl }),
       setModel: (model) => set({ model }),

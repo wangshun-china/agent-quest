@@ -8,7 +8,7 @@ const config: LevelConfig = {
   title: 'Agent vs Harness 边界',
   description: '理解大脑与身体的分工',
   type: 'concept',
-  component: lazy(() => import('./BoundaryLevel')),
+  component: lazy(() => import('./Level')),
   requiresLevels: [],
   references: [
     { title: 'Building effective agents', url: 'https://www.anthropic.com/engineering/building-effective-agents', source: 'Anthropic' },

@@ -8,7 +8,7 @@ const config: LevelConfig = {
   title: 'Function Calling 结构化工具调用',
   description: 'ToolSpec → schema → tool_calls → role=tool',
   type: 'config',
-  component: lazy(() => import('./FunctionCallingLevel')),
+  component: lazy(() => import('./Level')),
   requiresLevels: ['1.3-model-client'],
   references: [
     { title: 'OpenAI Function Calling', url: 'https://platform.openai.com/docs/guides/function-calling', source: 'OpenAI' },

@@ -17,57 +17,74 @@ export default function TopBar({ title, levelNumber, mode, onModeChange }: TopBa
 
   return (
     <>
-      <div className="h-14 bg-white border-b border-[#E5E5E5] flex items-center justify-between px-6 shrink-0">
-        <div className="flex items-center gap-4">
+      <div className="h-14 bg-white/75 backdrop-blur-xl border-b border-[#E4E7F4]/90 flex items-center justify-between px-4 sm:px-6 shrink-0 z-20 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset]">
+        <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
           <button
+            type="button"
             onClick={() => navigate('/')}
-            className="text-sm text-[#6B6B6B] hover:text-[#1A1A1A] transition-colors flex items-center gap-1"
+            className="text-[13px] text-[#6B6F85] hover:text-[#14141f] transition-colors flex items-center gap-1.5 shrink-0 rounded-lg px-2 py-1 hover:bg-[#F0F1F8]"
           >
-            ← 地图
+            <span className="text-[11px] opacity-70">←</span>
+            地图
           </button>
-          <span className="text-[#E5E5E5]">|</span>
-          <span className="text-xs text-[#9B9B9B] font-mono">{levelNumber}</span>
-          <h1 className="text-sm font-semibold text-[#1A1A1A]">{title}</h1>
-          <span className="hidden sm:inline text-[10px] px-1.5 py-0.5 rounded bg-[#1A1A2E] text-[#A8B4FF]">
-            透明探索
+          <span className="w-px h-4 bg-[#E4E7F4] shrink-0" />
+          <span className="text-[11px] text-[#5E6AD2] font-mono font-medium bg-[#5E6AD2]/10 px-1.5 py-0.5 rounded-md shrink-0">
+            {levelNumber}
+          </span>
+          <h1 className="text-[13px] sm:text-sm font-semibold text-[#14141f] truncate font-display tracking-tight">
+            {title}
+          </h1>
+          <span className="hidden md:inline-flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-full bg-[#0c0e18] text-[#C4CBFF] shrink-0 border border-white/10">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#5E6AD2] opacity-60" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#7B85E0]" />
+            </span>
+            透明机芯
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Mode toggle */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {mode && onModeChange && (
-            <div className="flex items-center bg-[#F5F5F5] rounded-lg p-0.5">
+            <div className="flex items-center bg-[#F0F1F8]/90 rounded-xl p-0.5 border border-[#E4E7F4]">
               <button
+                type="button"
                 onClick={() => onModeChange('replay')}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                className={`px-2.5 sm:px-3 py-1 text-[11px] rounded-lg transition-all ${
                   mode === 'replay'
-                    ? 'bg-white text-[#1A1A1A] shadow-sm font-medium'
-                    : 'text-[#9B9B9B] hover:text-[#6B6B6B]'
+                    ? 'bg-white text-[#14141f] shadow-sm font-semibold'
+                    : 'text-[#8B8FA3] hover:text-[#5A5E72]'
                 }`}
               >
-                模拟数据
+                模拟
               </button>
               <button
+                type="button"
                 onClick={() => onModeChange('live')}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                className={`px-2.5 sm:px-3 py-1 text-[11px] rounded-lg transition-all ${
                   mode === 'live'
-                    ? 'bg-white text-[#1A1A1A] shadow-sm font-medium'
-                    : 'text-[#9B9B9B] hover:text-[#6B6B6B]'
+                    ? 'bg-white text-[#14141f] shadow-sm font-semibold'
+                    : 'text-[#8B8FA3] hover:text-[#5A5E72]'
                 }`}
               >
-                大模型驱动
+                大模型
               </button>
             </div>
           )}
 
-          {/* API status */}
           <button
+            type="button"
             onClick={() => setConfigOpen(true)}
-            className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+            className="flex items-center gap-1.5 rounded-xl px-2 py-1 hover:bg-[#F0F1F8] transition-colors"
           >
-            <div className={`w-2 h-2 rounded-full ${apiKey ? 'bg-[#2DA44E]' : 'bg-[#E5E5E5]'}`} />
-            <span className="text-xs text-[#9B9B9B]">
-              {apiKey ? 'API 已配置' : '未配置 API'}
+            <div
+              className={`w-2 h-2 rounded-full ring-2 ring-offset-1 ${
+                apiKey
+                  ? 'bg-[#2DA44E] ring-[#2DA44E]/25'
+                  : 'bg-[#D0D0D8] ring-[#E5E5E5]'
+              }`}
+            />
+            <span className="text-[11px] text-[#8B8FA3] hidden sm:inline">
+              {apiKey ? 'API 就绪' : '配置 API'}
             </span>
           </button>
         </div>

@@ -13,15 +13,19 @@ export default function Button({
   className = '',
   ...props
 }: ButtonProps) {
-  const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-[#5E6AD2]/30 disabled:opacity-40 disabled:cursor-not-allowed'
+  const base =
+    'inline-flex items-center justify-center font-medium rounded-xl transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5E6AD2]/35 focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:translate-y-0 active:scale-[0.98]'
   const variants = {
-    primary: 'bg-[#5E6AD2] text-white hover:bg-[#4F5ABF]',
-    secondary: 'bg-white text-[#1A1A1A] border border-[#E5E5E5] hover:bg-[#F5F5F5]',
-    ghost: 'text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-[#F5F5F5]',
+    primary:
+      'btn-primary-glow text-white hover:-translate-y-0.5',
+    secondary:
+      'bg-white/90 text-[#1A1A1A] border border-[#E4E6F0] shadow-sm hover:bg-white hover:border-[#C8CDE8] hover:shadow-md hover:-translate-y-0.5',
+    ghost:
+      'text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-white/70 rounded-xl',
   }
   const sizes = {
-    sm: 'text-xs px-3 py-1.5 gap-1.5',
-    md: 'text-sm px-4 py-2 gap-2',
+    sm: 'text-xs px-3.5 py-1.5 gap-1.5',
+    md: 'text-sm px-4 py-2.5 gap-2',
   }
 
   return (

@@ -434,3 +434,139 @@ export const LEVEL_4_2_CONCEPT = {
   conclusion: 'Eval 不是给 Agent 打分排名——它量化 Agent 升级是否真的改进了行为。没有 eval 的 Agent 迭代是盲目的。',
   references: [{ title:'SWE-bench', url:'https://arxiv.org/abs/2310.06770', source:'ICLR 2024' }, { title:'AgentBench', url:'https://arxiv.org/abs/2308.03688', source:'NeurIPS 2023' }],
 }
+
+export const LEVEL_4_3_CONCEPT = {
+  title: 'Human-in-the-Loop',
+  subtitle: 'Approval 只做 reviewer：只处理 Policy 判定为 ASK 的调用',
+  sections: [
+    {
+      heading: 'Policy / Approval / Sandbox',
+      content: `Policy   规则上如何处理本次调用（allow/ask/deny）
+Approval 仅在 ASK 时由谁确认（人 / 自动策略）
+Sandbox  技术上进程最多能访问什么
+
+Approval 不重新查 Registry、不重算 risk。`,
+      type: 'code' as const,
+    },
+    {
+      heading: '审批模式（lab）',
+      content: 'interactive：每个 ask 问用户\nworkspace：工作区写入可自动批，命令仍问\nall：ask 全自动批准',
+      type: 'text' as const,
+    },
+  ],
+  conclusion: '人机协作的正确接口是 ASK 闸门，不是让模型「自觉」或让审批逻辑重复 Policy。',
+  references: [
+    { title: 'Codex Approvals', url: 'https://developers.openai.com/codex/agent-approvals-security', source: 'OpenAI' },
+  ],
+}
+
+export const LEVEL_4_4_CONCEPT = {
+  title: '生产级 Sandbox 隔离',
+  subtitle: '应用层 Policy ≠ OS 强制隔离；Secrets 与进程边界要分开设计',
+  sections: [
+    {
+      heading: '当前 lab 边界',
+      content: 'program allowlist + shell=False + workspace 路径检查可减少注入，但被允许的 python/node 仍可能读工作区外文件或触网。生产需要真正的文件系统/网络/secret 隔离（主题卡 1.19）。',
+      type: 'text' as const,
+    },
+    {
+      heading: '对标',
+      content: 'Codex 明确区分 Sandbox 能力与 Approval Policy；MCP annotations 只是提示，不可替代客户端确定性策略。',
+      type: 'text' as const,
+    },
+  ],
+  conclusion: '不要用「模型答应不乱来」或「应用层路径检查」冒充生产 Sandbox。',
+  references: [
+    { title: 'Codex sandboxing', url: 'https://developers.openai.com/codex/concepts/sandboxing', source: 'OpenAI' },
+  ],
+}
+
+export const LEVEL_5_1_CONCEPT = {
+  title: 'Multi-Agent 编排',
+  subtitle: '主 Agent 决策，子 Agent 在受限 harness 中执行只读/专责任务',
+  sections: [
+    {
+      heading: 'lab 形态',
+      content: 'delegate_readonly_task：父 run 派出只读子 Agent，继承部分 context，结果作为 ToolResult 回到父循环。子 Agent 通常禁用 edit/command 或使用更严 Profile。',
+      type: 'text' as const,
+    },
+    {
+      heading: '设计要点',
+      content: '• 明确父子 span / run_id 关联\n• 子 Agent 预算独立\n• 不要把「多模型聊天」误当成 Multi-Agent harness',
+      type: 'text' as const,
+    },
+  ],
+  conclusion: 'Multi-Agent 是受控委派 + 结果归一，而不是无边界的多会话。',
+  references: [
+    { title: 'Building effective agents', url: 'https://www.anthropic.com/engineering/building-effective-agents', source: 'Anthropic' },
+  ],
+}
+
+export const LEVEL_5_2_CONCEPT = {
+  title: 'MCP 与工具生态',
+  subtitle: '远程 tools 适配为 ToolSpec，仍走同一 Policy 与 Observation 闭环',
+  sections: [
+    {
+      heading: '边界',
+      content: 'MCP Server 暴露 tools/resources；Host（Agent）负责连接、发现、映射为本地 ToolSpec，执行结果归一化为 ToolResult。不可信 Server 的 annotations 不能替代 RuntimePolicy。',
+      type: 'text' as const,
+    },
+    {
+      heading: '与本地工具',
+      content: 'mcp__server__tool 与 write_file 等本地工具同一 Registry 入口，同一 allow/ask/deny。',
+      type: 'text' as const,
+    },
+  ],
+  conclusion: 'MCP 扩展工具面，不绕过 Harness 安全边界。',
+  references: [
+    { title: 'MCP Specification', url: 'https://modelcontextprotocol.io', source: 'MCP' },
+  ],
+}
+
+export const LEVEL_5_3_CONCEPT = {
+  title: '模型抽象与路由',
+  subtitle: 'ModelClient 统一协议；按任务/成本/能力协商路由，而不是散落 fetch',
+  sections: [
+    {
+      heading: '关注点',
+      content: '• 统一 messages/tools/streaming 归一\n• 路由策略：默认模型 vs 强推理 vs 便宜模型\n• 失败重试与 fallback 在客户端，不在 prompt',
+      type: 'text' as const,
+    },
+  ],
+  conclusion: '模型是可替换部件；Harness 协议层必须稳定。',
+  references: [
+    { title: 'OpenAI API', url: 'https://platform.openai.com/docs/api-reference', source: 'OpenAI' },
+  ],
+}
+
+export const LEVEL_5_4_CONCEPT = {
+  title: 'Java / Spring Agent 映射',
+  subtitle: '同一 harness 思想：Loop、ToolRegistry、Policy、Trace，映射到 JVM 栈',
+  sections: [
+    {
+      heading: '映射表',
+      content: 'AgentLoop → 服务内状态机/协程\nToolSpec → Spring bean + schema\nRuntimePolicy → 拦截器/AOP 权限\nTrace → Micrometer/OTel\nSession → 持久化会话存储',
+      type: 'code' as const,
+    },
+  ],
+  conclusion: '换语言不换边界：确定性安全与可观测性仍属 harness。',
+  references: [
+    { title: 'Spring AI', url: 'https://docs.spring.io/spring-ai/reference/', source: 'Spring' },
+  ],
+}
+
+export const LEVEL_5_5_CONCEPT = {
+  title: '毕业设计：完整 Coding Agent',
+  subtitle: '把 1.1–1.22 串成可调试、可评测的本地 Agent',
+  sections: [
+    {
+      heading: '验收清单',
+      content: '• 原生 FC + ToolRegistry\n• Policy/Approval/命令结构化\n• read-before-edit + repair\n• Context 预算与 memory\n• Trace/replay + eval 回归\n• （可选）MCP / 子 Agent',
+      type: 'text' as const,
+    },
+  ],
+  conclusion: '毕业标准是能解释每一次 allow/deny/ask 与一次 run 为何 success/blocked。',
+  references: [
+    { title: 'Building effective agents', url: 'https://www.anthropic.com/engineering/building-effective-agents', source: 'Anthropic' },
+  ],
+}

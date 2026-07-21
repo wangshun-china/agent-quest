@@ -39,6 +39,7 @@ export type GlassBranch =
   | 'idle'
   | 'wrong_choice'
   | 'react_step'
+  | 'model_wait'
 
 export interface GlassPipeline {
   title: string
@@ -512,12 +513,200 @@ export function buildEventStepPipeline(
   }
 }
 
+/** Idle / connect skeleton — always has nodes so the right rail is never blank art-only. */
 export function emptyPipeline(hint: string): GlassPipeline {
   return {
-    title: '透明管道',
+    title: '透明管道 · 待命',
     branch: 'idle',
     summary: hint,
-    nodes: [],
+    nodes: [
+      node({
+        id: 'user',
+        label: 'User Task',
+        kind: 'harness',
+        status: 'idle',
+        chip: 'idle',
+        data: { hint },
+        note: '等待你发送任务或点「一键发送测试命令」',
+      }),
+      node({
+        id: 'model',
+        label: 'Model',
+        kind: 'model',
+        status: 'idle',
+        data: { pending: true },
+        note: '大模型尚未被调用',
+      }),
+      node({
+        id: 'policy',
+        label: 'RuntimePolicy',
+        kind: 'harness',
+        status: 'idle',
+        data: { pending: true },
+        note: '有 tool_call 后才会裁决',
+      }),
+    ],
+  }
+}
+
+/** Connecting state right before first HTTP call (nodes always present). */
+export function buildConnectingPipeline(model: string, apiBase: string): GlassPipeline {
+  return {
+    title: '连接中…',
+    branch: 'model_wait',
+    summary: `即将请求 ${model}\n${apiBase}`,
+    nodes: [
+      node({
+        id: 'user',
+        label: 'User Task',
+        kind: 'harness',
+        status: 'done',
+        chip: 'queued',
+        data: { model, apiBase },
+        note: '任务已入队，准备组装上下文',
+      }),
+      node({
+        id: 'model',
+        label: 'Model Request',
+        kind: 'model',
+        status: 'active',
+        chip: 'connecting',
+        data: { model, apiBase, status: 'opening HTTP' },
+        note: '正在建立到 LLM 的连接（非本地假数据）',
+      }),
+      node({
+        id: 'policy',
+        label: 'RuntimePolicy',
+        kind: 'harness',
+        status: 'idle',
+        data: { pending: true },
+        note: '等待模型返回',
+      }),
+    ],
+  }
+}
+
+/** Shown while waiting for LLM HTTP response (so right panel is never blank mid-run). */
+export function buildWaitingPipeline(round: number, model: string, messageCount: number): GlassPipeline {
+  return {
+    title: `Round ${round} · 请求模型中`,
+    branch: 'model_wait',
+    stepIndex: round,
+    summary: `正在调用 ${model}（messages=${messageCount}）… 真实 HTTP，通常需数秒，不是秒完。`,
+    nodes: [
+      node({
+        id: 'context',
+        label: 'Context',
+        kind: 'harness',
+        status: 'done',
+        chip: 'ready',
+        data: { messages: messageCount },
+        note: '本轮上下文已组装',
+      }),
+      node({
+        id: 'model',
+        label: 'Model Request',
+        kind: 'model',
+        status: 'active',
+        chip: 'waiting',
+        data: { model, round, status: 'fetching /chat/completions' },
+        note: '等待大模型返回 tool_calls 或 final',
+      }),
+      node({
+        id: 'policy',
+        label: 'RuntimePolicy',
+        kind: 'harness',
+        status: 'idle',
+        data: { pending: true },
+        note: '模型返回 tool_call 后才会裁决',
+      }),
+    ],
+  }
+}
+
+/** After a tool actually ran — observation with real payload (not only pre-exec policy). */
+export function buildToolObservationPipeline(input: {
+  round: number
+  toolName: string
+  args: Record<string, unknown>
+  decisionCode: string
+  resultPreview: string
+}): GlassPipeline {
+  return {
+    title: `Round ${input.round} · ${input.toolName} 已执行`,
+    branch: 'tool_path',
+    stepIndex: input.round,
+    summary: `Policy ${input.decisionCode} → 执行 ${input.toolName} → observation 回传模型`,
+    nodes: [
+      node({
+        id: 'intent',
+        label: 'Model Intent',
+        kind: 'model',
+        status: 'done',
+        chip: 'tool_call',
+        data: { tool: input.toolName, arguments: input.args },
+        note: '模型意图（已确认）',
+      }),
+      node({
+        id: 'policy',
+        label: 'RuntimePolicy',
+        kind: 'harness',
+        status: 'done',
+        chip: input.decisionCode,
+        data: { code: input.decisionCode },
+        note: '已放行并完成裁决',
+      }),
+      node({
+        id: 'execute',
+        label: 'Tool Execute',
+        kind: 'harness',
+        status: 'done',
+        chip: 'ran',
+        data: { tool: input.toolName, arguments: input.args },
+        note: 'Harness 已执行（模拟 workspace，非模型直写）',
+      }),
+      node({
+        id: 'observation',
+        label: 'Observation',
+        kind: 'harness',
+        status: 'active',
+        chip: 'tool',
+        data: {
+          role: 'tool',
+          preview: input.resultPreview.slice(0, 600),
+        },
+        note: '结构化结果写回 messages，进入下一 round',
+      }),
+    ],
+  }
+}
+
+export function buildFinalTextPipeline(round: number, content: string): GlassPipeline {
+  return {
+    title: `Round ${round} · final`,
+    branch: 'final_path',
+    stepIndex: round,
+    summary: '模型输出最终文本（无 tool_call）',
+    nodes: [
+      node({
+        id: 'model',
+        label: 'Model Final',
+        kind: 'model',
+        status: 'done',
+        chip: 'stop',
+        data: { content: content.slice(0, 500) },
+        note: 'finish_reason≈stop，无工具调用',
+      }),
+      node({
+        id: 'completion',
+        label: 'Completion',
+        kind: 'harness',
+        status: 'done',
+        chip: 'end',
+        data: { note: '本轮结束；若任务未完成可继续发消息' },
+        note: 'Harness 记录本轮结束',
+      }),
+    ],
   }
 }
 

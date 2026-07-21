@@ -8,7 +8,7 @@ const config: LevelConfig = {
   title: 'ReAct 最小循环',
   description: 'action → observation → next action',
   type: 'decision',
-  component: lazy(() => import('./ReactLoopLevel')),
+  component: lazy(() => import('./Level')),
   requiresLevels: ['1.1-boundary'],
   references: [
     { title: 'ReAct', url: 'https://arxiv.org/abs/2210.03629', source: 'NeurIPS 2023' },

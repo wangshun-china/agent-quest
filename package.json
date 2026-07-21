@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:live": "tsx scripts/live-smoke.mts",
+    "test:live:all": "tsx scripts/live-all-levels.mts"
   },
   "dependencies": {
     "framer-motion": "^11.0.0",
@@ -22,6 +24,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
+    "playwright": "^1.49.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.3",

@@ -146,3 +146,87 @@ export const LEVEL_4_2_QUIZ: QuizQuestion = {
   options: [{label:'A',text:'给 Agent 打分排名'},{label:'B',text:'量化 Agent 升级是否真的改进了行为，通过回归对比验证改进有效'},{label:'C',text:'替代人工测试'}],
   correctIndex: 1, explanation: 'Eval 的核心是回归对比：升级前 vs 升级后在相同测试用例上的表现差异。它不是排名工具，而是"我的代码改动真的让 Agent 变好了吗"的验证手段。',
 }
+
+export const LEVEL_4_3_QUIZ: QuizQuestion = {
+  id: '4.3-q1',
+  question: 'ApprovalController 应该在什么时候介入？',
+  options: [
+    { label: 'A', text: '每次 tool_call 都问用户' },
+    { label: 'B', text: '仅当 RuntimePolicy 输出 outcome=ASK' },
+    { label: 'C', text: '模型在 prompt 里请求批准时' },
+  ],
+  correctIndex: 1,
+  explanation: 'Approval 只做 reviewer：只处理 Policy 已判定为 ask 的调用，不重复解释 risk。',
+}
+
+export const LEVEL_4_4_QUIZ: QuizQuestion = {
+  id: '4.4-q1',
+  question: '应用层 RuntimePolicy + shell=False 是否等于生产 Sandbox？',
+  options: [
+    { label: 'A', text: '是，已经足够' },
+    { label: 'B', text: '否，被允许的进程仍可能越权访问文件/网络；需要 OS 级隔离与 secrets 管理' },
+    { label: 'C', text: '只要 system prompt 写清楚即可' },
+  ],
+  correctIndex: 1,
+  explanation: '主题卡 1.19：Policy 与 Sandbox 分离；应用层检查不能冒充 OS 强制隔离。',
+}
+
+export const LEVEL_5_1_QUIZ: QuizQuestion = {
+  id: '5.1-q1',
+  question: 'delegate_readonly_task 这类子 Agent 的关键约束是？',
+  options: [
+    { label: 'A', text: '与父 Agent 完全相同权限' },
+    { label: 'B', text: '在更严 harness（如只读 Profile）中运行，结果以 ToolResult 回传' },
+    { label: 'C', text: '直接共享父进程文件系统写权限' },
+  ],
+  correctIndex: 1,
+  explanation: 'Multi-Agent 是受控委派：子 run 有边界与预算，结果归一回父循环。',
+}
+
+export const LEVEL_5_2_QUIZ: QuizQuestion = {
+  id: '5.2-q1',
+  question: 'MCP 工具进入 Agent 后应如何处理权限？',
+  options: [
+    { label: 'A', text: '信任 Server annotations，直接执行' },
+    { label: 'B', text: '适配为 ToolSpec 后仍走 RuntimePolicy allow/ask/deny' },
+    { label: 'C', text: '只允许在 system prompt 里描述，不走 Registry' },
+  ],
+  correctIndex: 1,
+  explanation: 'MCP 扩展工具面，不可信 annotations 不能替代客户端确定性 Policy。',
+}
+
+export const LEVEL_5_3_QUIZ: QuizQuestion = {
+  id: '5.3-q1',
+  question: '模型路由应主要落在哪一层？',
+  options: [
+    { label: 'A', text: '写在 system prompt 让模型自己选' },
+    { label: 'B', text: 'ModelClient / 路由策略层（客户端确定性）' },
+    { label: 'C', text: '每次由用户口头指定即可，无需抽象' },
+  ],
+  correctIndex: 1,
+  explanation: '统一协议与路由在 harness 客户端，模型是可替换部件。',
+}
+
+export const LEVEL_5_4_QUIZ: QuizQuestion = {
+  id: '5.4-q1',
+  question: '把 Coding Agent 映射到 Spring 时，Policy 更接近？',
+  options: [
+    { label: 'A', text: '仅依赖 LLM 输出 JSON' },
+    { label: 'B', text: '拦截器 / 安全组件等确定性代码路径' },
+    { label: 'C', text: '前端按钮禁用' },
+  ],
+  correctIndex: 1,
+  explanation: '换栈不换边界：权限与协议校验仍是确定性 harness。',
+}
+
+export const LEVEL_5_5_QUIZ: QuizQuestion = {
+  id: '5.5-q1',
+  question: '「毕业」本地 Coding Agent 最低要能证明什么？',
+  options: [
+    { label: 'A', text: '界面好看' },
+    { label: 'B', text: '能解释每次 allow/ask/deny 与 run 终态，并有 trace/eval 支撑' },
+    { label: 'C', text: '参数量最大的模型' },
+  ],
+  correctIndex: 1,
+  explanation: '毕业标准是可调试、可评测的 harness 闭环，而非模型大小。',
+}

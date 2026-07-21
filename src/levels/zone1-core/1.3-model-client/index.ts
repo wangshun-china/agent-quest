@@ -8,7 +8,7 @@ const config: LevelConfig = {
   title: 'ModelClient 消息协议',
   description: 'SSE Streaming、规范化响应、错误重试',
   type: 'config',
-  component: lazy(() => import('./ModelClientLevel')),
+  component: lazy(() => import('./Level')),
   requiresLevels: ['1.2-react-loop'],
   references: [
     { title: 'OpenAI Streaming', url: 'https://platform.openai.com/docs/api-reference/streaming', source: 'OpenAI' },
