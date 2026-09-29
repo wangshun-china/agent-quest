@@ -5,16 +5,19 @@ on:
 
 jobs:
   test:
-    name: Pull real ghcr-hosted public image via CF mirror
+    name: Add ghcr.wangshun.work to docker NO_PROXY
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Pull home-assistant (~1GB) via mirror
+      - name: Update NO_PROXY and restart docker
         shell: bash
         run: |
-          set -uo pipefail
-          echo "=== docker pull ghcr.io/home-assistant/home-assistant:stable via CF mirror (300s cap) ==="
-          time timeout 300 docker pull "ghcr.wangshun.work/home-assistant/home-assistant:stable" || echo "MIRROR PULL FAILED"
-          echo "=== direct ghcr.io for comparison (300s cap) ==="
-          time timeout 300 docker pull "ghcr.io/home-assistant/home-assistant:stable" || echo "DIRECT PULL FAILED"
-          echo "=== via mirror images now local ==="
-          docker image ls "ghcr.wangshun.work/*" --format '{{.Repository}}:{{.Tag}} {{.Size}}'
+          set -euo pipefail
+          grep -q "ghcr.wangshun.work" /etc/systemd/system/docker.service.d/10-docker-proxy.conf || \
+            sed -i 's/^Environment="NO_PROXY=\(.*\)"$/Environment="NO_PROXY=\1,ghcr.wangshun.work"/' \
+              /etc/systemd/system/docker.service.d/10-docker-proxy.conf
+          systemctl daemon-reload
+          systemctl restart docker
+          sleep 20
+          docker info 2>/dev/null | grep -i "no proxy"
+          echo "=== containers ==="
+          docker ps --format '{{.Names}} {{.Status}}' | head -8
