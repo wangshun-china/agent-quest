@@ -1,61 +1,20 @@
-name: Docker Proxy Fix v2
+name: Mirror Pull Test
 
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: read
-
 jobs:
-  fix:
-    name: Consolidate docker proxy drop-ins with correct NO_PROXY
+  test:
+    name: Test DaoCloud mirror for GHCR blobs
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Rewrite all proxy drop-ins into one canonical file
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== drop-ins before ==="
-          ls -la /etc/systemd/system/docker.service.d/ 2>/dev/null || true
-          # 删除所有含 PROXY 配置的 drop-in(不管文件名),合并为唯一规范文件
-          for f in /etc/systemd/system/docker.service.d/*.conf; do
-            [ -e "$f" ] || continue
-            if grep -q "PROXY" "$f"; then
-              echo "removing proxy drop-in: $f"
-              rm -f "$f"
-            fi
-          done
-          cat > /etc/systemd/system/docker.service.d/10-docker-proxy.conf <<'EOF'
-          [Service]
-          Environment="HTTP_PROXY=http://127.0.0.1:7890"
-          Environment="HTTPS_PROXY=http://127.0.0.1:7890"
-          Environment="NO_PROXY=localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com"
-          EOF
-          systemctl daemon-reload
-          systemctl restart docker
-          sleep 30
-          echo "=== docker info proxy after restart ==="
-          docker info 2>/dev/null | grep -iE 'http proxy|https proxy|no proxy'
-          echo "=== containers ==="
-          docker ps --format '{{.Names}} {{.Status}}' | head -15
-
-      - name: Pull tests (proxy startup window + flapping retries)
+      - name: Pull real image via DaoCloud mirror
         shell: bash
         run: |
           set -uo pipefail
-          printf '%s' "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
-          SHA=b1a2fcee4e39b72994128da1f953ba74dffae8bc
-          echo "=== GHCR pull via proxy (3 attempts, 90s cap each) ==="
-          for i in 1 2 3; do
-            echo "--- attempt $i ---"
-            if time timeout 90 docker pull "ghcr.io/wangshun-china/lumina-rpc:dashboard-$SHA"; then
-              echo "GHCR OK on attempt $i"; break
-            fi
-            sleep 5
-          done
-          echo "=== ACR direct pull (the previously failing command image) ==="
-          time timeout 120 docker pull "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/lumina-rpc:command-$SHA" || echo "ACR PULL FAILED"
-          echo "=== new-api container state (report only) ==="
-          docker ps -a --filter name=new-api --format '{{.Names}} {{.Status}}'
+          # control-plane 镜像,relay 一直拉不下来的那个(tag 为 无横杠拼接 格式)
+          SHA=95cd47f7eee4a9028a9dfe53efe708739fd27f88
+          echo "=== via DaoCloud mirror (180s cap) ==="
+          time timeout 180 docker pull "docker.m.daocloud.io/ghcr.io/wangshun-china/lumina-rpc:control-plane$SHA" || echo "MIRROR PULL FAILED"
+          echo "=== via direct GHCR for comparison (60s cap) ==="
+          time timeout 60 docker pull "ghcr.io/wangshun-china/lumina-rpc:control-plane$SHA" || echo "DIRECT PULL FAILED (expected at peak)"
