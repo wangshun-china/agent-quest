@@ -5,7 +5,7 @@ on:
 
 jobs:
   scan:
-    name: Scan ACR images for baked-in secrets before making packages public
+    name: Scan ACR images for baked-in secrets
     runs-on: [self-hosted, aliyun]
     steps:
       - name: Login ACR
@@ -13,26 +13,35 @@ jobs:
         run: |
           printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
 
-      - name: Scan all deployment images
+      - name: Run scan script
         shell: bash
+        env:
+          REG: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com
         run: |
+          cat > /tmp/scan.sh <<'SCAN_EOF'
+          #!/usr/bin/env bash
           set -uo pipefail
-          REG="crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com"
+          REG="${REG:?}"
           IMAGES="$REG/wangshun_build/agent-quest:latest $REG/wangshun_build/lumina-rpc:control-plane-latest $REG/wangshun_build/lumina-rpc:dashboard-latest $REG/wangshun_build/code-craft-ai:main-latest"
-          PATTERNS='sk-[A-Za-z0-9]{16,}|AKID[A-Za-z0-9]{10,}|(password|passwd|secret|api[_-]?key|token)["\x27]?\s*[:=]\s*["\x27]?[A-Za-z0-9/+-]{12,}'
           for img in $IMAGES; do
             echo "==================== $img ===================="
             docker pull -q "$img" >/dev/null 2>&1 || { echo "PULL SKIP (not found)"; continue; }
-            echo "--- baked ENV vars ---"
-            docker inspect "$img" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -viE "^(PATH|LANG|JAVA_|LC_|GPG|JAVA_HOME|TZ|NODE_VERSION|YARN_VERSION|NVM|HOSTNAME|HOME|PWD|SHLVL|LESS|_" ) || echo "(clean)"
-            echo "--- config files hit ---"
+            echo "--- baked ENV vars (non-standard) ---"
+            docker inspect "$img" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+              | grep -viE '^(PATH|LANG|JAVA|LC_|GPG|TZ|NODE|YARN|NVM|HOSTNAME|HOME|PWD|SHLVL|LESS|M2|MAVEN|_)' || echo "(clean)"
+            echo "--- spring/env config files and key hits ---"
             docker run --rm --entrypoint sh "$img" -c '
-              find / -xdev \( -name "application*.yml" -o -name "application*.yaml" -o -name "application*.properties" -o -name "*.env" -o -name ".env*" \) -type f 2>/dev/null | head -20
-            ' 2>/dev/null | while read -r f; do
+              find / -xdev \( -name "application*.yml" -o -name "application*.yaml" -o -name "application*.properties" -o -name ".env" \) -type f 2>/dev/null | head -10
+            ' | while read -r f; do
               echo "FILE: $f"
-              docker run --rm --entrypoint sh "$img" -c "cat '$f'" 2>/dev/null | grep -inE "$PATTERNS" | head -5
+              docker run --rm --entrypoint sh "$img" -c "cat '$f' 2>/dev/null" \
+                | grep -inE 'sk-[A-Za-z0-9]{16,}|AKID[A-Za-z0-9]{10,}|(password|secret|api[_-]?key|access[_-]?key)[^a-z].{0,4}[=:][[:space:]]*[^$[:space:]]{8,}' \
+                | grep -viE 'example|placeholder|changeit|\$\{' | head -5
             done
-            echo "--- filesystem-wide key pattern hit (top-level configs) ---"
-            docker run --rm --entrypoint sh "$img" -c "grep -rsInE '$PATTERNS' /app /etc/nginx /srv /opt 2>/dev/null | grep -vE 'changeit|example|placeholder|your[-_]' | head -8" || echo "(no hit)"
+            echo "--- broad grep over /app /opt /srv /etc/nginx ---"
+            docker run --rm --entrypoint sh "$img" -c "grep -rsInE 'sk-[A-Za-z0-9]{16,}|AKID[A-Za-z0-9]{10,}' /app /opt /srv /etc/nginx 2>/dev/null | head -8"
+            echo "(scan of image done)"
           done
           echo "==================== SCAN COMPLETE ===================="
+          SCAN_EOF
+          bash /tmp/scan.sh 2>&1
