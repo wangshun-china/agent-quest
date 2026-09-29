@@ -1,8 +1,9 @@
+# Generated from template/deploy-template.yml (multi-image capable).
+# Agent Quest tweaks: database=none (static nginx app behind the
+# wangshun-portfolio gateway network), APP_PORT fallback 10001.
 name: Build and Deploy
 
 on:
-  push:
-    branches: [main, master]
   workflow_dispatch:
     inputs:
       target_env:
@@ -13,16 +14,57 @@ on:
         options:
           - aliyun
           - wsl
+      database:
+        description: Template-managed infrastructure (none = app services only)
+        required: true
+        default: none
+        type: choice
+        options:
+          - mysql
+          - postgres
+          - none
+
+# Required repository or organization configuration:
+#   Variables: ALIYUN_ACR_REGISTRY, ALIYUN_ACR_USERNAME
+#   Secrets:   ALIYUN_ACR_PASSWORD
+#              DATABASE_PASSWORD, REDIS_PASSWORD,
+#              DATABASE_ROOT_PASSWORD (required when MySQL is selected)
+# Optional repository variables:
+#   ALIYUN_ACR_IMAGE_NAME - defaults to wangshun_build/<repository>
+#   DEPLOY_IMAGES         - JSON image list, defaults to single ./Dockerfile image
+#                           [{"name":"user","dockerfile":"Dockerfile.user"},...]
+#                           tag becomes <name>-<sha>; single default keeps plain <sha>
+#   PROJECT_NAME          - docker compose project name, defaults to <repository>;
+#                           set it when migrating a stack that already runs under
+#                           a different project name (volumes are project-scoped)
+#   DEPLOY_DOCKERFILE     - defaults to ./Dockerfile (single-image mode only)
+#   DATABASE_NAME         - defaults to app
+#   DATABASE_USERNAME     - defaults to app
+#   APP_PORT              - defaults to 8080
+#
+# Application services:
+#   The template owns infrastructure (mysql/postgres/redis) and orchestration
+#   (dual push, SHA tags, pull fallback, cleanup). Project-specific services are
+#   declared in deploy/prod-services.yaml; image references must use the
+#   IMAGE_<NAME> variables exported by the deploy job. Without that file the
+#   template deploys a single Spring Boot app service.
 
 env:
   GHCR_REGISTRY: ghcr.io
   GHCR_IMAGE_NAME: ${{ github.repository }}
-  IMAGE_TAG: ${{ github.sha }}
+  ALIYUN_ACR_REGISTRY: ${{ vars.ALIYUN_ACR_REGISTRY }}
+  ALIYUN_ACR_USERNAME: ${{ vars.ALIYUN_ACR_USERNAME }}
+  ALIYUN_ACR_IMAGE_NAME: ${{ vars.ALIYUN_ACR_IMAGE_NAME || format('wangshun_build/{0}', github.event.repository.name) }}
+  DEPLOY_IMAGES: ${{ vars.DEPLOY_IMAGES }}
+  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+  DATABASE_NAME: ${{ vars.DATABASE_NAME || 'app' }}
+  DATABASE_USERNAME: ${{ vars.DATABASE_USERNAME || 'app' }}
   APP_PORT: ${{ vars.APP_PORT || '10001' }}
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   build-and-push:
-    name: Build and Push Image
+    name: Build and Push Images
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,6 +74,46 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      # ---------------------------------------------------------------------
+      # PROJECT PRE-BUILD (optional)
+      # Multi-module projects insert Maven / pnpm build and artifact copy steps
+      # here, before images are built. The image loop below assumes every
+      # Dockerfile can build from the repository root context.
+      # ---------------------------------------------------------------------
+
+      - name: Validate build configuration
+        shell: bash
+        env:
+          ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          missing=()
+          [[ -n "$ALIYUN_ACR_REGISTRY" ]] || missing+=(ALIYUN_ACR_REGISTRY)
+          [[ -n "$ALIYUN_ACR_USERNAME" ]] || missing+=(ALIYUN_ACR_USERNAME)
+          [[ -n "$ALIYUN_ACR_PASSWORD" ]] || missing+=(ALIYUN_ACR_PASSWORD)
+          [[ -n "$ALIYUN_ACR_IMAGE_NAME" ]] || missing+=(ALIYUN_ACR_IMAGE_NAME)
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing GitHub Actions configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          if [ -n "$DEPLOY_IMAGES" ]; then
+            IMAGE_SPECS="$DEPLOY_IMAGES"
+          else
+            IMAGE_SPECS='[{"name":"app","dockerfile":"./Dockerfile","tag_prefix":""}]'
+          fi
+
+          echo "$IMAGE_SPECS" | jq -e 'type == "array" and length > 0 and all(.[]; (.name | type == "string") and (.dockerfile | type == "string"))' >/dev/null \
+            || { echo "DEPLOY_IMAGES must be a JSON array of {name, dockerfile, tag_prefix?}" >&2; exit 1; }
+
+          while IFS='|' read -r name dockerfile prefix; do
+            [[ -f "$dockerfile" ]] || { echo "Dockerfile not found: $dockerfile (image $name)" >&2; exit 1; }
+            [[ "$name" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "Invalid image name: $name" >&2; exit 1; }
+          done < <(echo "$IMAGE_SPECS" | jq -r '.[] | "\(.name)|\(.dockerfile)|\(.tag_prefix // .name)"')
+          echo "$IMAGE_SPECS" > /tmp/image-specs.json
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -39,118 +121,291 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      - name: Log in to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_ACR_REGISTRY }}
+          username: ${{ env.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:latest
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Build and push all images to both registries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          GHCR_REPOSITORY="$GHCR_REGISTRY/$GHCR_IMAGE_NAME"
+          ACR_REPOSITORY="$ALIYUN_ACR_REGISTRY/$ALIYUN_ACR_IMAGE_NAME"
+
+          while IFS='|' read -r name dockerfile prefix; do
+            echo "::group::Build image $name ($dockerfile)"
+            docker buildx build \
+              --file "$dockerfile" \
+              --tag "$GHCR_REPOSITORY:${prefix}${IMAGE_TAG}" \
+              --tag "$GHCR_REPOSITORY:${prefix}latest" \
+              --tag "$ACR_REPOSITORY:${prefix}${IMAGE_TAG}" \
+              --tag "$ACR_REPOSITORY:${prefix}latest" \
+              --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+              --label "org.opencontainers.image.revision=${{ github.sha }}" \
+              --cache-from type=gha \
+              --cache-to type=gha,mode=max \
+              --push \
+              .
+            echo "::endgroup::"
+          done < <(jq -r '.[] | "\(.name)|\(.dockerfile)|\(.tag_prefix // .name)"' /tmp/image-specs.json)
 
   deploy:
-    name: Deploy to ${{ github.event.inputs.target_env || 'aliyun' }}
+    name: Deploy to ${{ github.event.inputs.target_env }}
     needs: build-and-push
-    runs-on: [self-hosted, "${{ github.event.inputs.target_env || 'aliyun' }}"]
+    runs-on: [self-hosted, "${{ github.event.inputs.target_env }}"]
+    environment: ${{ github.event.inputs.target_env }}
     permissions:
       contents: read
       packages: read
     concurrency:
-      group: deploy-${{ github.repository }}-${{ github.event.inputs.target_env || 'aliyun' }}
+      group: deploy-${{ github.repository }}-${{ github.event.inputs.target_env }}
       cancel-in-progress: false
+    env:
+      DATABASE_ENGINE: ${{ github.event.inputs.database }}
+      ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+      DATABASE_ROOT_PASSWORD: ${{ secrets.DATABASE_ROOT_PASSWORD }}
+      REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+      # Project-specific secrets used by deploy/prod-services.yaml interpolation
+      # are declared here, e.g. JWT_SECRET: ${{ secrets.JWT_SECRET }}.
 
     steps:
-      - name: Deploy immutable image
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Deploy with GHCR primary and Aliyun ACR fallback
         shell: bash
         run: |
           set -euo pipefail
+
+          missing=()
+          [[ -n "$ALIYUN_ACR_REGISTRY" ]] || missing+=(ALIYUN_ACR_REGISTRY)
+          [[ -n "$ALIYUN_ACR_USERNAME" ]] || missing+=(ALIYUN_ACR_USERNAME)
+          [[ -n "$ALIYUN_ACR_PASSWORD" ]] || missing+=(ALIYUN_ACR_PASSWORD)
+          [[ -n "$ALIYUN_ACR_IMAGE_NAME" ]] || missing+=(ALIYUN_ACR_IMAGE_NAME)
+          if [[ "$DATABASE_ENGINE" != "none" ]]; then
+            [[ -n "$DATABASE_PASSWORD" ]] || missing+=(DATABASE_PASSWORD)
+            [[ -n "$REDIS_PASSWORD" ]] || missing+=(REDIS_PASSWORD)
+            if [[ "$DATABASE_ENGINE" == "mysql" && -z "$DATABASE_ROOT_PASSWORD" ]]; then
+              missing+=(DATABASE_ROOT_PASSWORD)
+            fi
+          fi
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing GitHub Actions configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          if [ -n "$DEPLOY_IMAGES" ]; then
+            IMAGE_SPECS="$DEPLOY_IMAGES"
+          else
+            IMAGE_SPECS='[{"name":"app","dockerfile":"./Dockerfile","tag_prefix":""}]'
+          fi
+          echo "$IMAGE_SPECS" | jq -e 'type == "array" and length > 0' >/dev/null \
+            || { echo "DEPLOY_IMAGES must be a JSON array" >&2; exit 1; }
 
           export DOCKER_CONFIG="$(mktemp -d)"
           trap 'rm -rf "$DOCKER_CONFIG"' EXIT
 
           printf '%s' "${{ github.token }}" |
             docker login "$GHCR_REGISTRY" -u "${{ github.actor }}" --password-stdin
+          printf '%s' "$ALIYUN_ACR_PASSWORD" |
+            docker login "$ALIYUN_ACR_REGISTRY" -u "$ALIYUN_ACR_USERNAME" --password-stdin
 
-          IMAGE_REPOSITORY="$GHCR_REGISTRY/$GHCR_IMAGE_NAME"
-          IMAGE_REF="$IMAGE_REPOSITORY:$IMAGE_TAG"
-          docker pull "$IMAGE_REF"
+          GHCR_REPOSITORY="$GHCR_REGISTRY/$GHCR_IMAGE_NAME"
+          ACR_REPOSITORY="$ALIYUN_ACR_REGISTRY/$ALIYUN_ACR_IMAGE_NAME"
 
-          PROJECT_NAME="$(printf '%s' "${{ github.event.repository.name }}" |
-            tr '[:upper:]' '[:lower:]' |
-            sed 's/[^a-z0-9_-]/-/g')"
-          port_owners="$(docker ps \
-            --filter "publish=$APP_PORT" \
-            --format '{{.ID}}\t{{.Label "com.docker.compose.project"}}\t{{.Names}}\t{{.Image}}\t{{.Ports}}' |
-            awk -F '\t' -v project="$PROJECT_NAME" '$2 != project')"
-          if [[ -n "$port_owners" ]]; then
-            echo "Port $APP_PORT is currently occupied:" >&2
-            printf '%s\n' "$port_owners" >&2
-            exit 1
+          # Pull every image; GHCR first, per-image Aliyun ACR fallback.
+          # Mixed sources are safe: one SHA always means one build artifact.
+          IMAGE_REFS=()
+          while IFS='|' read -r name dockerfile prefix; do
+            if docker pull "$GHCR_REPOSITORY:${prefix}${IMAGE_TAG}"; then
+              IMAGE_REFS+=("$GHCR_REPOSITORY:${prefix}${IMAGE_TAG}")
+            elif docker pull "$ACR_REPOSITORY:${prefix}${IMAGE_TAG}"; then
+              echo "GHCR pull failed for $name; using Aliyun ACR fallback."
+              IMAGE_REFS+=("$ACR_REPOSITORY:${prefix}${IMAGE_TAG}")
+            else
+              echo "Unable to pull image $name ($IMAGE_TAG) from GHCR or Aliyun ACR." >&2
+              exit 1
+            fi
+            export_var="IMAGE_$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')"
+            export "$export_var=${IMAGE_REFS[-1]}"
+          done < <(echo "$IMAGE_SPECS" | jq -r '.[] | "\(.name)|\(.dockerfile)|\(.tag_prefix // .name)"')
+
+          if [[ -n "$PROJECT_NAME" ]]; then
+            PROJECT_NAME="$(printf '%s' "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]')"
+          else
+            PROJECT_NAME="$(printf '%s' "${{ github.event.repository.name }}" |
+              tr '[:upper:]' '[:lower:]' |
+              sed 's/[^a-z0-9_-]/-/g')"
           fi
-
-          DEPLOY_DIR="/opt/$PROJECT_NAME"
+          DEPLOY_DIR="$HOME/deployments/$PROJECT_NAME"
           mkdir -p "$DEPLOY_DIR"
           chmod 700 "$DEPLOY_DIR"
           cd "$DEPLOY_DIR"
 
-          cat > compose.yaml <<'COMPOSE_EOF'
+          COMPOSE_FILES=()
+          if [[ "$DATABASE_ENGINE" != "none" ]]; then
+            cat > compose.infra.yaml <<'COMPOSE_EOF'
+          services:
+            mysql:
+              image: mysql:8.0
+              profiles: [mysql]
+              restart: unless-stopped
+              environment:
+                MYSQL_ROOT_PASSWORD: ${DATABASE_ROOT_PASSWORD:?DATABASE_ROOT_PASSWORD is required}
+                MYSQL_DATABASE: ${DATABASE_NAME:-app}
+                MYSQL_USER: ${DATABASE_USERNAME:-app}
+                MYSQL_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+                TZ: Asia/Shanghai
+              volumes:
+                - mysql-data:/var/lib/mysql
+              command:
+                - --character-set-server=utf8mb4
+                - --collation-server=utf8mb4_unicode_ci
+              healthcheck:
+                test: [CMD-SHELL, "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+                interval: 10s
+                timeout: 5s
+                retries: 12
+                start_period: 30s
+
+            postgres:
+              image: postgres:16-alpine
+              profiles: [postgres]
+              restart: unless-stopped
+              environment:
+                POSTGRES_DB: ${DATABASE_NAME:-app}
+                POSTGRES_USER: ${DATABASE_USERNAME:-app}
+                POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+                TZ: Asia/Shanghai
+              volumes:
+                - postgres-data:/var/lib/postgresql/data
+              healthcheck:
+                test: [CMD-SHELL, "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+                interval: 10s
+                timeout: 5s
+                retries: 12
+                start_period: 20s
+
+            redis:
+              image: redis:7-alpine
+              restart: unless-stopped
+              environment:
+                REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+              command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+              volumes:
+                - redis-data:/data
+              healthcheck:
+                test: [CMD-SHELL, 'redis-cli -a "$$REDIS_PASSWORD" ping | grep PONG']
+                interval: 10s
+                timeout: 5s
+                retries: 10
+
+          volumes:
+            mysql-data:
+            postgres-data:
+            redis-data:
+          COMPOSE_EOF
+            COMPOSE_FILES+=(-f compose.infra.yaml)
+          fi
+
+          OVERRIDE_FILE="$GITHUB_WORKSPACE/deploy/prod-services.yaml"
+          if [[ -f "$OVERRIDE_FILE" ]]; then
+            echo "Using project services file: deploy/prod-services.yaml"
+            COMPOSE_FILES+=(-f "$OVERRIDE_FILE")
+            APP_TARGET=""
+          elif [[ "$DATABASE_ENGINE" != "none" ]]; then
+            cat > compose.app.yaml <<'COMPOSE_EOF'
           services:
             app:
-              image: ${IMAGE_REF:?IMAGE_REF is required}
+              image: ${IMAGE_APP:?IMAGE_APP is required}
               restart: unless-stopped
+              environment:
+                APP_ENV: prod
+                SPRING_PROFILES_ACTIVE: prod
+                SERVER_PORT: 8080
+                SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:?SPRING_DATASOURCE_URL is required}
+                SPRING_DATASOURCE_USERNAME: ${DATABASE_USERNAME:-app}
+                SPRING_DATASOURCE_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}
+                SPRING_DATA_REDIS_HOST: redis
+                SPRING_DATA_REDIS_PORT: 6379
+                SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
               ports:
-                - "${APP_PORT:-10001}:80"
-              networks:
-                gateway:
-                  aliases:
-                    - agent-quest
-              logging:
-                driver: json-file
-                options:
-                  max-size: 10m
-                  max-file: "3"
-
-          networks:
-            gateway:
-              external: true
-              name: wangshun-portfolio_default
+                - "${APP_PORT:-8080}:8080"
           COMPOSE_EOF
+            COMPOSE_FILES+=(-f compose.app.yaml)
+            APP_TARGET="app"
+          else
+            echo "database=none requires deploy/prod-services.yaml to define application services." >&2
+            exit 1
+          fi
 
-          export IMAGE_REF APP_PORT
-          docker compose --project-name "$PROJECT_NAME" config --quiet
-          docker compose --project-name "$PROJECT_NAME" up -d --remove-orphans
-          docker compose --project-name "$PROJECT_NAME" ps
+          if [[ "$DATABASE_ENGINE" == "mysql" ]]; then
+            SPRING_DATASOURCE_URL="jdbc:mysql://mysql:3306/$DATABASE_NAME?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+          elif [[ "$DATABASE_ENGINE" == "postgres" ]]; then
+            SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/$DATABASE_NAME"
+            # Compose interpolates the whole model before filtering profiles.
+            # The inactive MySQL service therefore needs a harmless fallback.
+            DATABASE_ROOT_PASSWORD="${DATABASE_ROOT_PASSWORD:-$DATABASE_PASSWORD}"
+          fi
 
-          for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:$APP_PORT/" > /dev/null; then
-              break
-            fi
-            if [[ "$attempt" == 30 ]]; then
-              docker compose --project-name "$PROJECT_NAME" logs --tail 100 app
-              exit 1
-            fi
-            sleep 2
-          done
+          export SPRING_DATASOURCE_URL APP_PORT
 
-          mapfile -t stale_refs < <(
-            docker image ls "$IMAGE_REPOSITORY" --format '{{.Repository}}:{{.Tag}}' |
-              grep -Fvx "$IMAGE_REF" |
+          docker compose --project-name "$PROJECT_NAME" "${COMPOSE_FILES[@]}" config --quiet
+
+          if [[ "$DATABASE_ENGINE" != "none" ]]; then
+            docker compose --project-name "$PROJECT_NAME" --profile "$DATABASE_ENGINE" "${COMPOSE_FILES[@]}" \
+              up -d --wait --wait-timeout 180 "$DATABASE_ENGINE" redis
+          fi
+          if [[ -n "$APP_TARGET" ]]; then
+            docker compose --project-name "$PROJECT_NAME" "${COMPOSE_FILES[@]}" \
+              up -d --remove-orphans "$APP_TARGET"
+          else
+            docker compose --project-name "$PROJECT_NAME" "${COMPOSE_FILES[@]}" \
+              up -d --wait --wait-timeout 300 --remove-orphans
+          fi
+          docker compose --project-name "$PROJECT_NAME" "${COMPOSE_FILES[@]}" ps
+
+          cleanup_repository_images() {
+            local repository="$1"
+            shift
+            local keep_refs=("$@")
+            local stale_refs=()
+
+            mapfile -t stale_refs < <(
+              docker image ls "$repository" --format '{{.Repository}}:{{.Tag}}' |
+              grep -Fvx -e "${keep_refs[@]}" -e "" |
               grep -v ':<none>$' |
               sort -u || true
-          )
-          if (( ${#stale_refs[@]} > 0 )); then
-            docker image rm -f "${stale_refs[@]}"
-          fi
+            )
+
+            if (( ${#stale_refs[@]} > 0 )); then
+              printf 'Removing old project images from %s:\n' "$repository"
+              printf '  %s\n' "${stale_refs[@]}"
+              docker image rm -f "${stale_refs[@]}"
+            fi
+          }
+
+          GHCR_LOCAL_REFS=()
+          ACR_LOCAL_REFS=()
+          for ref in "${IMAGE_REFS[@]}"; do
+            case "$ref" in
+              "$GHCR_REPOSITORY:"*) GHCR_LOCAL_REFS+=("$ref") ;;
+              "$ACR_REPOSITORY:"*) ACR_LOCAL_REFS+=("$ref") ;;
+            esac
+          done
+          cleanup_repository_images "$GHCR_REPOSITORY" ${GHCR_LOCAL_REFS+"${GHCR_LOCAL_REFS[@]}"}
+          cleanup_repository_images "$ACR_REPOSITORY" ${ACR_LOCAL_REFS+"${ACR_LOCAL_REFS[@]}"}
           docker image prune -f \
             --filter "label=org.opencontainers.image.source=https://github.com/${{ github.repository }}"
 
-          echo "Deployment completed: $IMAGE_REF on port $APP_PORT"
+          echo "Deployment completed:"
+          printf '  %s\n' "${IMAGE_REFS[@]}"

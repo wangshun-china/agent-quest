@@ -1,0 +1,23 @@
+# Agent Quest 生产应用服务定义（由 deploy-template.yml 部署模板读取）
+# 镜像一律引用模板导出的 IMAGE_* 变量，不写 registry 地址和 tag。
+# database=none：静态 nginx 应用，无模板基础设施。
+services:
+  app:
+    image: ${IMAGE_APP}
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-10001}:80"
+    networks:
+      gateway:
+        aliases:
+          - agent-quest
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  gateway:
+    external: true
+    name: wangshun-portfolio_default
