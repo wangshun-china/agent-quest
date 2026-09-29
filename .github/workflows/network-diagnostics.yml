@@ -1,4 +1,4 @@
-name: Docker Proxy Fix
+name: Docker Proxy Fix v2
 
 on:
   workflow_dispatch:
@@ -9,43 +9,53 @@ permissions:
 
 jobs:
   fix:
-    name: Invert NO_PROXY so GHCR uses proxy, ACR goes direct
+    name: Consolidate docker proxy drop-ins with correct NO_PROXY
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Backup and fix docker daemon proxy config
+      - name: Rewrite all proxy drop-ins into one canonical file
         shell: bash
         run: |
           set -euo pipefail
-          echo "=== before ==="
-          cat /etc/systemd/system/docker.service.d/*.conf
+          echo "=== drop-ins before ==="
+          ls -la /etc/systemd/system/docker.service.d/ 2>/dev/null || true
+          # 删除所有含 PROXY 配置的 drop-in(不管文件名),合并为唯一规范文件
           for f in /etc/systemd/system/docker.service.d/*.conf; do
-            cp "$f" "$f.bak-20260929"
+            [ -e "$f" ] || continue
+            if grep -q "PROXY" "$f"; then
+              echo "removing proxy drop-in: $f"
+              rm -f "$f"
+            fi
           done
-          # NO_PROXY 反转:ACR(国内)直连,GHCR/github 走 sing-box 代理
-          cat > /etc/systemd/system/docker.service.d/http-proxy.conf <<'EOF'
+          cat > /etc/systemd/system/docker.service.d/10-docker-proxy.conf <<'EOF'
           [Service]
           Environment="HTTP_PROXY=http://127.0.0.1:7890"
           Environment="HTTPS_PROXY=http://127.0.0.1:7890"
           Environment="NO_PROXY=localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com"
           EOF
-          rm -f /etc/systemd/system/docker.service.d/*.conf.bak-20260929 2>/dev/null || true
-          # 保留其他可能的 drop-in,只重写代理这一个;备份已留 .bak-20260929
           systemctl daemon-reload
           systemctl restart docker
-          sleep 5
-          echo "=== after ==="
+          sleep 30
+          echo "=== docker info proxy after restart ==="
           docker info 2>/dev/null | grep -iE 'http proxy|https proxy|no proxy'
-          echo "=== containers back ==="
+          echo "=== containers ==="
           docker ps --format '{{.Names}} {{.Status}}' | head -15
 
-      - name: Real GHCR pull speed test (with login)
+      - name: Pull tests (proxy startup window + flapping retries)
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           printf '%s' "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          SHA=b1a2fcee4e39b72994128da1f953ba74dffae8bc
-          echo "=== timed GHCR private image pull ==="
-          time timeout 240 docker pull "ghcr.io/wangshun-china/lumina-rpc:dashboard-$SHA" || echo "GHCR PULL STILL FAILED"
-          echo "=== timed ACR direct pull (command image, needs login) ==="
           printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
+          SHA=b1a2fcee4e39b72994128da1f953ba74dffae8bc
+          echo "=== GHCR pull via proxy (3 attempts, 90s cap each) ==="
+          for i in 1 2 3; do
+            echo "--- attempt $i ---"
+            if time timeout 90 docker pull "ghcr.io/wangshun-china/lumina-rpc:dashboard-$SHA"; then
+              echo "GHCR OK on attempt $i"; break
+            fi
+            sleep 5
+          done
+          echo "=== ACR direct pull (the previously failing command image) ==="
           time timeout 120 docker pull "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/lumina-rpc:command-$SHA" || echo "ACR PULL FAILED"
+          echo "=== new-api container state (report only) ==="
+          docker ps -a --filter name=new-api --format '{{.Names}} {{.Status}}'
