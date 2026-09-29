@@ -5,18 +5,16 @@ on:
 
 jobs:
   test:
-    name: Test self-hosted CF Workers GHCR mirror
+    name: Pull real ghcr-hosted public image via CF mirror
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Reachability + real docker pull via mirror
+      - name: Pull home-assistant (~1GB) via mirror
         shell: bash
         run: |
           set -uo pipefail
-          echo "=== curl DIRECT (no proxy) to mirror /v2/ ==="
-          curl -sS -D - -o /dev/null --max-time 15 --noproxy '*' https://ghcr.wangshun.work/v2/ 2>&1 | grep -iE "^HTTP|realm" | head -3 || echo "DIRECT UNREACHABLE"
-          echo "=== docker pull public image via mirror (180s cap) ==="
-          time timeout 180 docker pull "ghcr.wangshun.work/cloudflare/cloudflared:latest" || echo "MIRROR PULL FAILED"
-          echo "=== pull a bigger one: eyerun/backrest or prometheus (~100MB) (240s cap) ==="
-          time timeout 240 docker pull "ghcr.wangshun.work/ollama/ollama:latest" 2>/dev/null || echo "SKIP-FAILED"
-          echo "=== verify realm rewrite on token flow worked (docker could auth) ==="
+          echo "=== docker pull ghcr.io/home-assistant/home-assistant:stable via CF mirror (300s cap) ==="
+          time timeout 300 docker pull "ghcr.wangshun.work/home-assistant/home-assistant:stable" || echo "MIRROR PULL FAILED"
+          echo "=== direct ghcr.io for comparison (300s cap) ==="
+          time timeout 300 docker pull "ghcr.io/home-assistant/home-assistant:stable" || echo "DIRECT PULL FAILED"
+          echo "=== via mirror images now local ==="
           docker image ls "ghcr.wangshun.work/*" --format '{{.Repository}}:{{.Tag}} {{.Size}}'
