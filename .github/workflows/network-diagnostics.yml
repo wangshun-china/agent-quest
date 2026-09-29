@@ -5,16 +5,18 @@ on:
 
 jobs:
   test:
-    name: Test DaoCloud mirror for GHCR blobs
+    name: Test DaoCloud mirror for GHCR blobs (authenticated)
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Pull real image via DaoCloud mirror
+      - name: Authenticated pull comparison
         shell: bash
         run: |
           set -uo pipefail
-          # control-plane 镜像,relay 一直拉不下来的那个(tag 为 无横杠拼接 格式)
           SHA=95cd47f7eee4a9028a9dfe53efe708739fd27f88
+          # 私有包:先登录两个源(ghcr 用临时 token;mirror 透传同一凭据)
+          printf '%s' "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          printf '%s' "${{ github.token }}" | docker login docker.m.daocloud.io -u "${{ github.actor }}" --password-stdin || echo "mirror login failed (continuing)"
           echo "=== via DaoCloud mirror (180s cap) ==="
           time timeout 180 docker pull "docker.m.daocloud.io/ghcr.io/wangshun-china/lumina-rpc:control-plane$SHA" || echo "MIRROR PULL FAILED"
-          echo "=== via direct GHCR for comparison (60s cap) ==="
-          time timeout 60 docker pull "ghcr.io/wangshun-china/lumina-rpc:control-plane$SHA" || echo "DIRECT PULL FAILED (expected at peak)"
+          echo "=== via direct GHCR (90s cap, off-peak now) ==="
+          time timeout 90 docker pull "ghcr.io/wangshun-china/lumina-rpc:control-plane$SHA" || echo "DIRECT PULL FAILED"
