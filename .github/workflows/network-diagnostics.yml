@@ -1,23 +1,38 @@
-name: Mirror Pull Test
+name: Secret Scan
 
 on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Add ghcr.wangshun.work to docker NO_PROXY
+  scan:
+    name: Scan ACR images for baked-in secrets before making packages public
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Update NO_PROXY and restart docker
+      - name: Login ACR
         shell: bash
         run: |
-          set -euo pipefail
-          grep -q "ghcr.wangshun.work" /etc/systemd/system/docker.service.d/10-docker-proxy.conf || \
-            sed -i 's/^Environment="NO_PROXY=\(.*\)"$/Environment="NO_PROXY=\1,ghcr.wangshun.work"/' \
-              /etc/systemd/system/docker.service.d/10-docker-proxy.conf
-          systemctl daemon-reload
-          systemctl restart docker
-          sleep 20
-          docker info 2>/dev/null | grep -i "no proxy"
-          echo "=== containers ==="
-          docker ps --format '{{.Names}} {{.Status}}' | head -8
+          printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
+
+      - name: Scan all deployment images
+        shell: bash
+        run: |
+          set -uo pipefail
+          REG="crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com"
+          IMAGES="$REG/wangshun_build/agent-quest:latest $REG/wangshun_build/lumina-rpc:control-plane-latest $REG/wangshun_build/lumina-rpc:dashboard-latest $REG/wangshun_build/code-craft-ai:main-latest"
+          PATTERNS='sk-[A-Za-z0-9]{16,}|AKID[A-Za-z0-9]{10,}|(password|passwd|secret|api[_-]?key|token)["\x27]?\s*[:=]\s*["\x27]?[A-Za-z0-9/+-]{12,}'
+          for img in $IMAGES; do
+            echo "==================== $img ===================="
+            docker pull -q "$img" >/dev/null 2>&1 || { echo "PULL SKIP (not found)"; continue; }
+            echo "--- baked ENV vars ---"
+            docker inspect "$img" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -viE "^(PATH|LANG|JAVA_|LC_|GPG|JAVA_HOME|TZ|NODE_VERSION|YARN_VERSION|NVM|HOSTNAME|HOME|PWD|SHLVL|LESS|_" ) || echo "(clean)"
+            echo "--- config files hit ---"
+            docker run --rm --entrypoint sh "$img" -c '
+              find / -xdev \( -name "application*.yml" -o -name "application*.yaml" -o -name "application*.properties" -o -name "*.env" -o -name ".env*" \) -type f 2>/dev/null | head -20
+            ' 2>/dev/null | while read -r f; do
+              echo "FILE: $f"
+              docker run --rm --entrypoint sh "$img" -c "cat '$f'" 2>/dev/null | grep -inE "$PATTERNS" | head -5
+            done
+            echo "--- filesystem-wide key pattern hit (top-level configs) ---"
+            docker run --rm --entrypoint sh "$img" -c "grep -rsInE '$PATTERNS' /app /etc/nginx /srv /opt 2>/dev/null | grep -vE 'changeit|example|placeholder|your[-_]' | head -8" || echo "(no hit)"
+          done
+          echo "==================== SCAN COMPLETE ===================="
