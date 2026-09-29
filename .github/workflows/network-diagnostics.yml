@@ -5,18 +5,18 @@ on:
 
 jobs:
   test:
-    name: Test DaoCloud mirror for GHCR blobs (authenticated)
+    name: Test self-hosted CF Workers GHCR mirror
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Authenticated pull comparison
+      - name: Reachability + real docker pull via mirror
         shell: bash
         run: |
           set -uo pipefail
-          SHA=95cd47f7eee4a9028a9dfe53efe708739fd27f88
-          # 私有包:先登录两个源(ghcr 用临时 token;mirror 透传同一凭据)
-          printf '%s' "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          printf '%s' "${{ github.token }}" | docker login docker.m.daocloud.io -u "${{ github.actor }}" --password-stdin || echo "mirror login failed (continuing)"
-          echo "=== via DaoCloud mirror (180s cap) ==="
-          time timeout 180 docker pull "docker.m.daocloud.io/ghcr.io/wangshun-china/lumina-rpc:control-plane$SHA" || echo "MIRROR PULL FAILED"
-          echo "=== via direct GHCR (90s cap, off-peak now) ==="
-          time timeout 90 docker pull "ghcr.io/wangshun-china/lumina-rpc:control-plane$SHA" || echo "DIRECT PULL FAILED"
+          echo "=== curl DIRECT (no proxy) to mirror /v2/ ==="
+          curl -sS -D - -o /dev/null --max-time 15 --noproxy '*' https://ghcr.wangshun.work/v2/ 2>&1 | grep -iE "^HTTP|realm" | head -3 || echo "DIRECT UNREACHABLE"
+          echo "=== docker pull public image via mirror (180s cap) ==="
+          time timeout 180 docker pull "ghcr.wangshun.work/cloudflare/cloudflared:latest" || echo "MIRROR PULL FAILED"
+          echo "=== pull a bigger one: eyerun/backrest or prometheus (~100MB) (240s cap) ==="
+          time timeout 240 docker pull "ghcr.wangshun.work/ollama/ollama:latest" 2>/dev/null || echo "SKIP-FAILED"
+          echo "=== verify realm rewrite on token flow worked (docker could auth) ==="
+          docker image ls "ghcr.wangshun.work/*" --format '{{.Repository}}:{{.Tag}} {{.Size}}'
