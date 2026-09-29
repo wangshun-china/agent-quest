@@ -22,7 +22,7 @@ jobs:
           #!/usr/bin/env bash
           set -uo pipefail
           REG="${REG:?}"
-          IMAGES="$REG/wangshun_build/agent-quest:latest $REG/wangshun_build/lumina-rpc:control-plane-latest $REG/wangshun_build/lumina-rpc:dashboard-latest $REG/wangshun_build/code-craft-ai:main-latest"
+          IMAGES="$REG/wangshun_build/lumina-rpc:control-planeb1a2fcee4e39b72994128da1f953ba74dffae8bc $REG/wangshun_build/lumina-rpc:dashboardb1a2fcee4e39b72994128da1f953ba74dffae8bc $REG/wangshun_build/code-craft-ai:user-serviceff30f92af3ad07aa25b38060f1842f6844864722 $REG/wangshun_build/code-craft-ai:frontendff30f92af3ad07aa25b38060f1842f6844864722"
           for img in $IMAGES; do
             echo "==================== $img ===================="
             docker pull -q "$img" >/dev/null 2>&1 || { echo "PULL SKIP (not found)"; continue; }
