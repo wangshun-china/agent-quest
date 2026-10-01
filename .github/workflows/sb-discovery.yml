@@ -5,28 +5,22 @@ on:
 
 jobs:
   discover:
-    name: Discover sing-box nodes (read-only)
+    name: Find subscription/update mechanism (read-only)
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: List config dir and parse outbounds
+      - name: Search for subscription artifacts
         shell: bash
         run: |
           set -uo pipefail
           echo "=== /data/singbox contents ==="
-          ls -la /data/singbox/ | head -15
-          CFG=/data/singbox/config.json
-          [ -f "$CFG" ] || CFG=$(ls /data/singbox/*.json 2>/dev/null | head -1)
-          echo "=== config file: $CFG ==="
-          python3 - "$CFG" <<'PYEOF'
-          import sys, json
-          cfg = json.load(open(sys.argv[1]))
-          for ob in cfg.get('outbounds', []):
-              line = f"outbound: tag={ob.get('tag')!r} type={ob.get('type')}"
-              if 'outbounds' in ob:
-                  line += f" members={ob.get('outbounds')}"
-              print(line)
-          for r in cfg.get('route', {}).get('rules', []):
-              print("rule:", json.dumps(r, ensure_ascii=False))
-          print("final:", cfg.get('route', {}).get('final'))
-          print("inbounds:", [(i.get('tag'), i.get('type'), i.get('listen_port')) for i in cfg.get('inbounds', [])])
-          PYEOF
+          ls -la /data/singbox/ | head -20
+          echo "=== scripts referencing subscribe/update in /data and /root ==="
+          grep -rlsE "subscribe|sub\?|api/v1/client/subscribe|sing-box" /data/singbox/*.sh /root/*.sh 2>/dev/null | head -5 || true
+          echo "=== host crontab ==="
+          crontab -l 2>/dev/null | grep -vE "^#" | head -10 || echo "(empty)"
+          echo "=== sing-box container env/cmd ==="
+          docker inspect sing-box --format 'cmd={{.Config.Cmd}} entry={{.Config.Entrypoint}}' 2>/dev/null
+          docker inspect sing-box --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -viE "path|home" | head -6
+          echo "=== any compose file for sing-box ==="
+          ls /data/singbox/docker-compose.y*ml /data/docker-compose.y*ml 2>/dev/null || true
+          grep -l "sing-box" /data/*/docker-compose.y*ml 2>/dev/null || true
