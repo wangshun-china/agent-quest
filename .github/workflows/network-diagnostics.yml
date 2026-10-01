@@ -1,25 +1,52 @@
-name: Cleanup Lumina Containers
+name: ACR Speed Test
 
 on:
   workflow_dispatch:
 
 jobs:
-  clean:
-    name: Remove all lumina containers on aliyun (keep volumes)
-    runs-on: [self-hosted, aliyun]
+  speedtest:
+    name: ACR push speed from ${{ matrix.site }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - site: github-us
+            runner: ubuntu-latest
+          - site: aliyun-cn
+            runner: self-hosted,aliyun
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: List then remove lumina containers
+      - name: Login ACR
         shell: bash
         run: |
-          set -uo pipefail
-          echo "=== before: lumina containers ==="
-          docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -i lumina || echo "(none)"
-          IDS=$(docker ps -a --format '{{.Names}}' | grep -i lumina)
-          if [ -n "$IDS" ]; then
-            echo "$IDS" | xargs -r docker rm -f
-            echo "=== removed ==="
-          fi
-          echo "=== after: lumina containers ==="
-          docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -i lumina || echo "(none)"
-          echo "=== volumes preserved ==="
-          docker volume ls --format '{{.Name}}' | grep -i lumina || echo "(no lumina volumes)"
+          printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
+
+      - name: Create 20MB incompressible test image
+        shell: bash
+        run: |
+          dd if=/dev/urandom of=/tmp/blob bs=1M count=20 status=none
+          tar -cf /tmp/layer.tar -C /tmp blob
+          docker import /tmp/layer.tar "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:from-${{ matrix.site }}"
+
+      - name: Warm-up push (1MB, auth + connection setup excluded from timing)
+        shell: bash
+        run: |
+          dd if=/dev/urandom of=/tmp/warm bs=1M count=1 status=none
+          tar -cf /tmp/warm.tar -C /tmp warm
+          docker import /tmp/warm.tar "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:warm-${{ matrix.site }}"
+          timeout 180 docker push "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:warm-${{ matrix.site }}" >/dev/null
+
+      - name: Timed 20MB push from ${{ matrix.site }}
+        shell: bash
+        run: |
+          START=$(date +%s)
+          timeout 600 docker push "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:from-${{ matrix.site }}"
+          END=$(date +%s)
+          SECS=$((END-START))
+          echo "=============================================="
+          echo "SITE=${{ matrix.site }} pushed ~20MB in ${SECS}s => $((20*1024/(SECS>0?SECS:1))) KB/s"
+          echo "=============================================="
+
+      - name: Cleanup local images
+        shell: bash
+        run: docker image rm "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:from-${{ matrix.site }}" "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:warm-${{ matrix.site }}" 2>/dev/null || true
