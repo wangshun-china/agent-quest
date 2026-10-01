@@ -1,0 +1,83 @@
+name: SB Sub Refresh
+
+on:
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    name: Run subscription refresh then inspect nodes
+    runs-on: [self-hosted, aliyun]
+    steps:
+      - name: Show refresh script logic (URL token redacted)
+        shell: bash
+        run: |
+          set -uo pipefail
+          S=/root/.hermes/scripts/refresh-singbox-subscription.py
+          wc -l "$S"
+          sed -e 's#\([a-zA-Z0-9]\{10\}\)[a-zA-Z0-9_-]*#\1***#g' "$S" | head -50
+
+      - name: Run subscription refresh
+        shell: bash
+        run: |
+          set -uo pipefail
+          cp /data/singbox/config.json /data/singbox/config.json.pre-refresh
+          python3 /root/.hermes/scripts/refresh-singbox-subscription.py 2>&1 | tail -12
+          sleep 5
+          (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep 7890 || echo "WARN: 7890 not listening"
+
+      - name: List nodes and sweep HK for GHCR
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 - <<'PYEOF'
+          import json, subprocess, time, shutil
+
+          CFG = "/data/singbox/config.json"
+          POST_REFRESH = "/data/singbox/config.json.post-refresh"
+          shutil.copy(CFG, POST_REFRESH)
+
+          cfg = json.load(open(CFG))
+          obs = cfg.get("outbounds", [])
+          print("total outbounds:", len(obs))
+          res = [ob["tag"] for ob in obs if any(k in ob.get("tag", "").lower() for k in ["住宅", "residential", "原生", "isp", "家宽"])]
+          print("RESIDENTIAL-like nodes:", res if res else "(none)")
+          hk = [ob["tag"] for ob in obs if ob.get("tag", "").startswith("\U0001F1ED\U0001F1F0")]
+          print("HK nodes:", hk)
+
+          def run(cmd, timeout=60):
+              return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+
+          def probe(tag):
+              c = json.load(open(POST_REFRESH))
+              rule = {"domain_suffix": ["ghcr.io", "pkg-containers.githubusercontent.com",
+                                        "objects.githubusercontent.com", "githubusercontent.com",
+                                        "githubassets.com"],
+                      "outbound": tag}
+              c.setdefault("route", {}).setdefault("rules", []).insert(0, rule)
+              json.dump(c, open(CFG, "w"), ensure_ascii=False, indent=2)
+              chk = run("docker exec sing-box sing-box check -c /etc/sing-box/config.json")
+              if chk.returncode != 0:
+                  return "check-failed"
+              run("docker restart sing-box"); time.sleep(8)
+              r = run("curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -x http://127.0.0.1:7890 https://ghcr.io/v2/", timeout=25)
+              return r.stdout.strip() or f"ERR{r.returncode}"
+
+          # HK first, then residential candidates if any, then a SG control
+          candidates = hk + res + ["\U0001F1F8\U0001F1EC新加坡高速01"]
+          seen = set()
+          winner = None
+          for tag in candidates:
+              if tag in seen or not tag: continue
+              seen.add(tag)
+              code = probe(tag)
+              print(f"  {tag} => ghcr http={code}")
+              if code == "401":
+                  winner = tag; break
+
+          if winner:
+              print(f"WINNER={winner} (route left in place)")
+          else:
+              shutil.copy(POST_REFRESH, CFG)
+              run("docker restart sing-box"); time.sleep(6)
+              print("no winner; restored post-refresh config")
+          PYEOF
