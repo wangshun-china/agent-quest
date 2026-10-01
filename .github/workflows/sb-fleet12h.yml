@@ -23,7 +23,7 @@ jobs:
 
           # skip outside the 12h window
           import datetime
-          cutoff = datetime.datetime(2026, 10, 2, 15, 30, tzinfo=datetime.timezone.utc)
+          cutoff = datetime.datetime(2026, 10, 3, 7, 0, tzinfo=datetime.timezone.utc)
           if datetime.datetime.now(datetime.timezone.utc) >= cutoff:
               print("12h window closed; skip")
               raise SystemExit(0)
