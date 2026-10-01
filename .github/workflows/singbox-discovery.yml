@@ -1,13 +1,10 @@
-name: ACR Speed Test
+name: Singbox Discovery
 
 on:
   workflow_dispatch:
-  schedule:
-    # Hourly, UTC. Auto-stops after the 24h window (see cutoff below).
-    - cron: "0 * * * *"
 
 jobs:
-  singbox-discovery:
+  discover:
     name: Discover sing-box nodes (read-only)
     runs-on: [self-hosted, aliyun]
     steps:
@@ -17,17 +14,20 @@ jobs:
           set -uo pipefail
           echo "=== sing-box container mounts ==="
           docker inspect sing-box --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
-          CFG=$(docker inspect sing-box --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' | tr ' ' '\n' | grep -m1 'json\|conf' | cut -d: -f2)
-          echo "=== config inside container: $CFG ==="
-          echo "--- outbound tags and types (no addresses/passwords) ---"
-          docker exec sing-box sh -c "cat $CFG" 2>/dev/null | python3 -c "
+          MOUNTS=$(docker inspect sing-box --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}')
+          CFG=$(echo "$MOUNTS" | tr ' ' '\n' | grep -E '\.(json|jsonc|conf)' | head -1 | cut -d: -f1)
+          echo "=== config file on host: $CFG ==="
+          echo "--- outbound tags and types (addresses redacted) ---"
+          python3 - "$CFG" <<'PY'
 import sys, json
-cfg = json.load(sys.stdin)
+cfg = json.load(open(sys.argv[1]))
 for ob in cfg.get('outbounds', []):
-    print(f\"outbound: tag={ob.get('tag')!r} type={ob.get('type')}\" + (f\" outbounds={ob.get('outbounds')}\" if 'outbounds' in ob else ''))
+    line = f"outbound: tag={ob.get('tag')!r} type={ob.get('type')}"
+    if 'outbounds' in ob:
+        line += f" members={ob.get('outbounds')}"
+    print(line)
 for r in cfg.get('route', {}).get('rules', []):
-    print('rule:', json.dumps(r, ensure_ascii=False))
-print('final:', cfg.get('route', {}).get('final'))
-" 2>/dev/null || docker exec sing-box sh -c "grep -oE '\"tag\": *\"[^\"]*\"' $CFG"
-          echo "--- inbound ports (mixs/http) ---"
-          docker exec sing-box sh -c "grep -A2 '\"inbounds\"' $CFG | head -8" 2>/dev/null || true
+    print("rule:", json.dumps(r, ensure_ascii=False))
+print("final:", cfg.get('route', {}).get('final'))
+print("inbounds:", [(i.get('tag'), i.get('type'), i.get('listen_port')) for i in cfg.get('inbounds', [])])
+PY
