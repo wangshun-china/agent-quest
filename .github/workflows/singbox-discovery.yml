@@ -1,0 +1,33 @@
+name: ACR Speed Test
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Hourly, UTC. Auto-stops after the 24h window (see cutoff below).
+    - cron: "0 * * * *"
+
+jobs:
+  singbox-discovery:
+    name: Discover sing-box nodes (read-only)
+    runs-on: [self-hosted, aliyun]
+    steps:
+      - name: Locate config and list outbound tags
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "=== sing-box container mounts ==="
+          docker inspect sing-box --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
+          CFG=$(docker inspect sing-box --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' | tr ' ' '\n' | grep -m1 'json\|conf' | cut -d: -f2)
+          echo "=== config inside container: $CFG ==="
+          echo "--- outbound tags and types (no addresses/passwords) ---"
+          docker exec sing-box sh -c "cat $CFG" 2>/dev/null | python3 -c "
+import sys, json
+cfg = json.load(sys.stdin)
+for ob in cfg.get('outbounds', []):
+    print(f\"outbound: tag={ob.get('tag')!r} type={ob.get('type')}\" + (f\" outbounds={ob.get('outbounds')}\" if 'outbounds' in ob else ''))
+for r in cfg.get('route', {}).get('rules', []):
+    print('rule:', json.dumps(r, ensure_ascii=False))
+print('final:', cfg.get('route', {}).get('final'))
+" 2>/dev/null || docker exec sing-box sh -c "grep -oE '\"tag\": *\"[^\"]*\"' $CFG"
+          echo "--- inbound ports (mixs/http) ---"
+          docker exec sing-box sh -c "grep -A2 '\"inbounds\"' $CFG | head -8" 2>/dev/null || true
