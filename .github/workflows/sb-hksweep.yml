@@ -5,67 +5,76 @@ on:
 
 jobs:
   sweep:
-    name: Try each HK node for GHCR, timed pull on first working
+    name: Python-driven HK node sweep for GHCR
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Sweep nodes
+      - name: Sweep
         shell: bash
         run: |
           set -uo pipefail
-          CFG=/data/singbox/config.json
-          cp "$CFG" "$CFG.bak-hksweep"
-          NODES=("\U0001F1ED\U0001F1F0香港高速01" "\U0001F1ED\U0001F1F0香港高速02" "\U0001F1ED\U0001F1F0香港专线02" "\U0001F1ED\U0001F1F0香港专线03")
+          cp /data/singbox/config.json /data/singbox/config.json.bak-hksweep2
+          python3 - <<'PYEOF'
+          import json, subprocess, time, shutil
 
-          patch_rule() {
-            python3 - "$CFG" "$1" <<'PYEOF'
-          import sys, json
-          path, tag = sys.argv[1], sys.argv[2]
-          cfg = json.load(open(path))
-          rule = {
-              "domain_suffix": ["ghcr.io", "pkg-containers.githubusercontent.com", "objects.githubusercontent.com", "githubusercontent.com", "githubassets.com"],
-              "outbound": tag,
-          }
-          rules = cfg.setdefault("route", {}).setdefault("rules", [])
-          rules.insert(0, rule)
-          json.dump(cfg, open(path, "w"), ensure_ascii=False, indent=2)
+          CFG = "/data/singbox/config.json"
+          BAK = "/data/singbox/config.json.bak-hksweep2"
+          DOMAINS = ["ghcr.io", "pkg-containers.githubusercontent.com",
+                     "objects.githubusercontent.com", "githubusercontent.com",
+                     "githubassets.com"]
+
+          def run(cmd, timeout=60):
+              return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+
+          def patch(tag):
+              cfg = json.load(open(BAK))
+              rule = {"domain_suffix": DOMAINS, "outbound": tag}
+              cfg.setdefault("route", {}).setdefault("rules", []).insert(0, rule)
+              json.dump(cfg, open(CFG, "w"), ensure_ascii=False, indent=2)
+
+          def curl_code():
+              r = run("curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -x http://127.0.0.1:7890 https://ghcr.io/v2/", timeout=25)
+              out = r.stdout.strip()
+              return out if out else f"ERR{r.returncode}"
+
+          cfg = json.load(open(CFG))
+          hk_tags = [ob["tag"] for ob in cfg.get("outbounds", [])
+                     if ob.get("tag", "").startswith("\U0001F1ED\U0001F1F0")]
+          print("HK nodes found:", hk_tags)
+
+          winner = None
+          for tag in hk_tags:
+              print(f"==== node: {tag} ====")
+              patch(tag)
+              chk = run("docker exec sing-box sing-box check -c /etc/sing-box/config.json")
+              if chk.returncode != 0:
+                  print("  config check failed:", chk.stderr.strip()[:120]); continue
+              run("docker restart sing-box"); time.sleep(8)
+              code = curl_code()
+              print(f"  ghcr /v2/ => http={code}")
+              if code == "401":
+                  winner = tag; break
+
+          if not winner:
+              print("NO HK NODE REACHED GHCR")
+              shutil.copy(BAK, CFG)
+              run("docker restart sing-box"); time.sleep(6)
+              print("restored original config")
+              raise SystemExit(0)
+
+          print(f"==== WINNER: {winner} ====")
+          r = run("curl -sS --max-time 15 -x http://127.0.0.1:7890 https://www.cloudflare.com/cdn-cgi/trace")
+          for line in r.stdout.splitlines():
+              if line.startswith(("loc=", "colo=")): print(" ", line)
+          IMAGE = "ghcr.io/wangshun-china/lumina-rpc:dashboard7a824ba222bcb4d939495973e92efa263d69cbfb"
+          run(f"docker image rm {IMAGE} >/dev/null 2>&1")
+          start = time.time()
+          pr = run(f"timeout 300 docker pull {IMAGE}", timeout=320)
+          secs = int(time.time() - start)
+          if pr.returncode == 0:
+              size = int(run(f"docker image inspect {IMAGE} --format '{{{{.Size}}}}'").stdout.strip() or 0)
+              mbs = size // 1048576
+              print(f"RESULT node={winner} pulled {mbs}MB in {secs}s => {mbs*1024//max(secs,1)} KB/s")
+          else:
+              print(f"RESULT node={winner} PULL FAILED rc={pr.returncode} (300s cap)")
+          print("NOTE: winner route left in place; rollback file:", BAK)
           PYEOF
-          }
-
-          restore() { cp "$CFG.bak-hksweep" "$CFG"; }
-
-          WINNER=""
-          for N in "${NODES[@]}"; do
-            echo "==================== node: $N ===================="
-            restore
-            patch_rule "$N" || continue
-            docker exec sing-box sing-box check -c /etc/sing-box/config.json >/dev/null 2>&1 || { echo "config invalid, skip"; continue; }
-            docker restart sing-box >/dev/null
-            sleep 8
-            CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 -x http://127.0.0.1:7890 https://ghcr.io/v2/ 2>/dev/null)
-            echo "ghcr /v2/ via node => http=$CODE"
-            if [ "$CODE" = "401" ]; then WINNER="$N"; break; fi
-          done
-
-          if [ -z "$WINNER" ]; then
-            echo "NO HK NODE REACHED GHCR (all failed handshake/timeout)"
-            restore
-            docker restart sing-box >/dev/null
-            sleep 6
-            echo "restored original config"
-            exit 0
-          fi
-
-          echo "==================== WINNER: $WINNER ===================="
-          echo "--- exit check ---"
-          curl -sS --max-time 15 -x http://127.0.0.1:7890 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -E "^(loc|colo)=" || true
-          echo "--- timed real pull ---"
-          IMAGE="ghcr.io/wangshun-china/lumina-rpc:dashboard7a824ba222bcb4d939495973e92efa263d69cbfb"
-          docker image rm "$IMAGE" 2>/dev/null || true
-          START=$(date +%s)
-          if timeout 300 docker pull "$IMAGE"; then
-            END=$(date +%s); SECS=$((END-START))
-            SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}'); MBS=$((SIZE/1048576))
-            echo "RESULT node=$WINNER pulled ${MBS}MB in ${SECS}s => $((MBS*1024/(SECS>0?SECS:1))) KB/s"
-          else
-            echo "RESULT node=$WINNER PULL FAILED/CAPPED(300s)"
-          fi
