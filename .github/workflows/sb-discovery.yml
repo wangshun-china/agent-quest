@@ -1,4 +1,4 @@
-name: Singbox Discovery
+name: SB Discovery
 
 on:
   workflow_dispatch:
@@ -15,7 +15,8 @@ jobs:
           echo "=== sing-box container mounts ==="
           docker inspect sing-box --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
           MOUNTS=$(docker inspect sing-box --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}')
-          CFG=$(echo "$MOUNTS" | tr ' ' '\n' | grep -E '\.(json|jsonc|conf)' | head -1 | cut -d: -f1)
+          CFG=$(echo "$MOUNTS" | tr ' ' '
+' | grep -E '\.(json|jsonc|conf)' | head -1 | cut -d: -f1)
           echo "=== config file on host: $CFG ==="
           echo "--- outbound tags and types (addresses redacted) ---"
           python3 - "$CFG" <<'PY'
