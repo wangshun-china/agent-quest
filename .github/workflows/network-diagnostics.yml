@@ -2,37 +2,63 @@ name: ACR Speed Test
 
 on:
   workflow_dispatch:
+  schedule:
+    # Hourly, UTC. Auto-stops after the 24h window (see cutoff below).
+    - cron: "0 * * * *"
 
 jobs:
-  ghcr-pull-via-proxy:
-    name: Timed GHCR pull from aliyun (via sing-box proxy)
+  us-to-acr:
+    name: US->ACR hourly
+    runs-on: ubuntu-latest
+    steps:
+      - name: 24h window guard
+        shell: bash
+        run: |
+          NOW=$(date -u +%Y%m%d%H)
+          echo "now=$NOW (UTC) | beijing=$(TZ=Asia/Shanghai date +%m-%d\ %H:%M) | us_et=$(TZ=America/New_York date +%m-%d\ %H:%M)"
+          if [ "$NOW" -ge 2026100218 ]; then
+            echo "24h window closed; skipping scheduled probe."
+            exit 0
+          fi
+      - name: Login ACR
+        shell: bash
+        run: printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
+      - name: Timed 20MB push (fresh random bytes, no dedupe)
+        shell: bash
+        run: |
+          dd if=/dev/urandom of=/tmp/blob bs=1M count=20 status=none
+          tar -cf /tmp/layer.tar -C /tmp blob
+          IMAGE="crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:us"
+          docker import /tmp/layer.tar "$IMAGE"
+          START=$(date +%s)
+          timeout 900 docker push "$IMAGE"
+          END=$(date +%s); SECS=$((END-START))
+          echo "RESULT site=us utc=$(date -u +%H:%M) bj=$(TZ=Asia/Shanghai date +%H:%M) et=$(TZ=America/New_York date +%H:%M) secs=${SECS} kbps=$((20*1024/(SECS>0?SECS:1)))"
+
+  cn-to-acr:
+    name: CN->ACR hourly (control)
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Confirm routing (must go via proxy, not direct)
+      - name: 24h window guard
         shell: bash
         run: |
-          echo "=== docker daemon proxy state ==="
-          docker info 2>/dev/null | grep -iE "http proxy|no proxy" | head -3
-          echo "=== sing-box port ==="
-          (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep 7890 || echo "SING-BOX NOT LISTENING"
-
-      - name: Timed anonymous pull of public lumina dashboard image
-        shell: bash
-        run: |
-          set -uo pipefail
-          # 包已公开,匿名可拉;tag 为 无横杠拼接格式
-          IMAGE="ghcr.io/wangshun-china/lumina-rpc:dashboard7a824ba222bcb4d939495973e92efa263d69cbfb"
-          docker image rm "$IMAGE" 2>/dev/null || true
-          START=$(date +%s)
-          if timeout 240 docker pull "$IMAGE"; then
-            END=$(date +%s); SECS=$((END-START))
-            SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
-            MBS=$((SIZE/1048576))
-            echo "=============================================="
-            echo "aliyun ->(proxy)-> GHCR pulled ${MBS}MB in ${SECS}s => $((MBS*1024/(SECS>0?SECS:1))) KB/s"
-            echo "=============================================="
-          else
-            echo "=============================================="
-            echo "PULL FAILED/CAPPED within 240s (throughput < image size / 240s)"
-            echo "=============================================="
+          NOW=$(date -u +%Y%m%d%H)
+          echo "now=$NOW (UTC)"
+          if [ "$NOW" -ge 2026100218 ]; then
+            echo "24h window closed; skipping scheduled probe."
+            exit 0
           fi
+      - name: Login ACR
+        shell: bash
+        run: printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
+      - name: Timed 20MB push (fresh random bytes, no dedupe)
+        shell: bash
+        run: |
+          dd if=/dev/urandom of=/tmp/blob bs=1M count=20 status=none
+          tar -cf /tmp/layer.tar -C /tmp blob
+          IMAGE="crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:cn"
+          docker import /tmp/layer.tar "$IMAGE"
+          START=$(date +%s)
+          timeout 300 docker push "$IMAGE"
+          END=$(date +%s); SECS=$((END-START))
+          echo "RESULT site=cn utc=$(date -u +%H:%M) bj=$(TZ=Asia/Shanghai date +%H:%M) et=$(TZ=America/New_York date +%H:%M) secs=${SECS} kbps=$((20*1024/(SECS>0?SECS:1)))"
