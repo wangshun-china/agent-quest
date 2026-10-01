@@ -4,48 +4,35 @@ on:
   workflow_dispatch:
 
 jobs:
-  from-github-us:
-    name: ACR push speed from github-us
-    runs-on: ubuntu-latest
-    steps:
-      - name: Login ACR
-        shell: bash
-        run: printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
-      - name: Create 20MB incompressible test image
-        shell: bash
-        run: |
-          dd if=/dev/urandom of=/tmp/blob bs=1M count=20 status=none
-          tar -cf /tmp/layer.tar -C /tmp blob
-          docker import /tmp/layer.tar "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:from-us"
-      - name: Timed 20MB push
-        shell: bash
-        run: |
-          START=$(date +%s)
-          timeout 600 docker push "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:from-us"
-          END=$(date +%s); SECS=$((END-START))
-          echo "=============================================="
-          echo "SITE=github-us pushed ~20MB in ${SECS}s => $((20*1024/(SECS>0?SECS:1))) KB/s"
-          echo "=============================================="
-
-  from-aliyun-cn:
-    name: ACR push speed from aliyun-cn
+  ghcr-pull-via-proxy:
+    name: Timed GHCR pull from aliyun (via sing-box proxy)
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Login ACR
-        shell: bash
-        run: printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
-      - name: Create 20MB incompressible test image
+      - name: Confirm routing (must go via proxy, not direct)
         shell: bash
         run: |
-          dd if=/dev/urandom of=/tmp/blob bs=1M count=20 status=none
-          tar -cf /tmp/layer.tar -C /tmp blob
-          docker import /tmp/layer.tar "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:from-cn"
-      - name: Timed 20MB push
+          echo "=== docker daemon proxy state ==="
+          docker info 2>/dev/null | grep -iE "http proxy|no proxy" | head -3
+          echo "=== sing-box port ==="
+          (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep 7890 || echo "SING-BOX NOT LISTENING"
+
+      - name: Timed anonymous pull of public lumina dashboard image
         shell: bash
         run: |
+          set -uo pipefail
+          # 包已公开,匿名可拉;tag 为 无横杠拼接格式
+          IMAGE="ghcr.io/wangshun-china/lumina-rpc:dashboardb1a2fcee4e39b72994128da1f953ba74dffae8bc"
+          docker image rm "$IMAGE" 2>/dev/null || true
           START=$(date +%s)
-          timeout 600 docker push "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/speedtest:from-cn"
-          END=$(date +%s); SECS=$((END-START))
-          echo "=============================================="
-          echo "SITE=aliyun-cn pushed ~20MB in ${SECS}s => $((20*1024/(SECS>0?SECS:1))) KB/s"
-          echo "=============================================="
+          if timeout 240 docker pull "$IMAGE"; then
+            END=$(date +%s); SECS=$((END-START))
+            SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+            MBS=$((SIZE/1048576))
+            echo "=============================================="
+            echo "aliyun ->(proxy)-> GHCR pulled ${MBS}MB in ${SECS}s => $((MBS*1024/(SECS>0?SECS:1))) KB/s"
+            echo "=============================================="
+          else
+            echo "=============================================="
+            echo "PULL FAILED/CAPPED within 240s (throughput < image size / 240s)"
+            echo "=============================================="
+          fi
