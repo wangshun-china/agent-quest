@@ -21,7 +21,7 @@ jobs:
         run: |
           set -uo pipefail
           # 包已公开,匿名可拉;tag 为 无横杠拼接格式
-          IMAGE="ghcr.io/wangshun-china/lumina-rpc:dashboardb1a2fcee4e39b72994128da1f953ba74dffae8bc"
+          IMAGE="ghcr.io/wangshun-china/lumina-rpc:dashboard7a824ba222bcb4d939495973e92efa263d69cbfb"
           docker image rm "$IMAGE" 2>/dev/null || true
           START=$(date +%s)
           if timeout 240 docker pull "$IMAGE"; then
