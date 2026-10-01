@@ -8,18 +8,16 @@ jobs:
     name: Discover sing-box nodes (read-only)
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Locate config and list outbound tags
+      - name: List config dir and parse outbounds
         shell: bash
         run: |
           set -uo pipefail
-          echo "=== sing-box container mounts ==="
-          docker inspect sing-box --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}'
-          MOUNTS=$(docker inspect sing-box --format '{{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}')
-          CFG=$(echo "$MOUNTS" | tr ' ' '\n' | grep -E '\.(json|jsonc|conf)' | head -1 | cut -d: -f1)
-          echo "=== config file on host: $CFG ==="
-          echo "--- outbound tags and types (addresses redacted) ---"
-          if command -v python3 >/dev/null 2>&1; then
-            python3 - "$CFG" <<'PYEOF'
+          echo "=== /data/singbox contents ==="
+          ls -la /data/singbox/ | head -15
+          CFG=/data/singbox/config.json
+          [ -f "$CFG" ] || CFG=$(ls /data/singbox/*.json 2>/dev/null | head -1)
+          echo "=== config file: $CFG ==="
+          python3 - "$CFG" <<'PYEOF'
           import sys, json
           cfg = json.load(open(sys.argv[1]))
           for ob in cfg.get('outbounds', []):
@@ -32,7 +30,3 @@ jobs:
           print("final:", cfg.get('route', {}).get('final'))
           print("inbounds:", [(i.get('tag'), i.get('type'), i.get('listen_port')) for i in cfg.get('inbounds', [])])
           PYEOF
-          else
-            echo "(no python3; raw tag grep)"
-            grep -oE '"tag": *"[^"]*"' "$CFG" | head -40
-          fi
