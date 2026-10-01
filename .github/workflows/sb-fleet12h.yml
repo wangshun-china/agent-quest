@@ -1,0 +1,92 @@
+name: SB Fleet 12h Probe
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+jobs:
+  probe:
+    name: 30-min node stability probe
+    runs-on: [self-hosted, aliyun]
+    steps:
+      - name: Probe top3 + rotating challenger
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 - <<'PYEOF'
+          import json, subprocess, time, shutil
+
+          CFG = "/data/singbox/config.json"
+          LOG = "/data/singbox/fleet-probe.log"
+          BASE = "/data/singbox/config.json.fleet-base"
+
+          # skip outside the 12h window
+          import datetime
+          cutoff = datetime.datetime(2026, 10, 2, 15, 30, tzinfo=datetime.timezone.utc)
+          if datetime.datetime.now(datetime.timezone.utc) >= cutoff:
+              print("12h window closed; skip")
+              raise SystemExit(0)
+
+          if not hasattr(shutil, "_copy_orig"):
+              pass
+          shutil.copy(CFG, BASE)
+
+          def run(cmd, timeout=60):
+              return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+
+          def route(tag, domains):
+              c = json.load(open(BASE))
+              rule = {"domain_suffix": domains, "outbound": tag}
+              c.setdefault("route", {}).setdefault("rules", []).insert(0, rule)
+              json.dump(c, open(CFG, "w"), ensure_ascii=False, indent=2)
+              if run("docker exec sing-box sing-box check -c /etc/sing-box/config.json").returncode != 0:
+                  return False
+              run("docker restart sing-box"); time.sleep(7)
+              return True
+
+          def speed_kbps(tag):
+              if not route(tag, ["speed.cloudflare.com"]):
+                  return -1
+              r = run("curl -sS -o /dev/null -w '%{speed_download}' --max-time 15 -x http://127.0.0.1:7890 'https://speed.cloudflare.com/__down?bytes=20971520'", timeout=25)
+              try:
+                  return int(float(r.stdout.strip() or 0) // 1024)
+              except ValueError:
+                  return 0
+
+          cfg = json.load(open(BASE))
+          all_nodes = [ob["tag"] for ob in cfg.get("outbounds", [])
+                       if ob.get("type") in ("vless", "hysteria2", "vmess", "trojan", "shadowsocks")]
+
+          TOP3 = ["\U0001F1F8\U0001F1EC\u65b0\u52a0\u5761\u4e13\u7ebf03",
+                  "\U0001F1EF\U0001F1F5\u65e5\u672c\u4e13\u7ebf01",
+                  "\U0001F1EF\U0001F1F5\u65e5\u672c\u4e13\u7ebf02"]
+          others = [t for t in all_nodes if t not in TOP3]
+          slot = int(time.time() // 1800)
+          challenger = others[slot % len(others)] if others else None
+
+          line = f"PROBE slot={slot} utc={time.strftime('%m-%d %H:%M')}"
+          best = None
+          for tag in TOP3:
+              kbps = speed_kbps(tag)
+              line += f" | {tag}={kbps}KB/s"
+              if kbps >= 1024 and (best is None or kbps > best[1]):
+                  best = (tag, kbps)
+          if challenger:
+              kbps = speed_kbps(challenger)
+              line += f" | challenger {challenger}={kbps}KB/s"
+
+          print(line)
+          with open(LOG, "a") as f:
+              f.write(line + "\n")
+
+          # restore a useful steady state: GHCR via best top3 node (or base)
+          if best:
+              route(best[0], ["ghcr.io", "pkg-containers.githubusercontent.com",
+                              "objects.githubusercontent.com", "githubusercontent.com"])
+              print(f"steady state: ghcr -> {best[0]}")
+          else:
+              shutil.copy(BASE, CFG)
+              run("docker restart sing-box")
+              print("steady state: base (no top3 node >= 1MB/s)")
+          PYEOF
