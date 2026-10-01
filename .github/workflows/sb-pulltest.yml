@@ -1,0 +1,32 @@
+name: SB Pull Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pull:
+    name: Timed real pull via active SG route
+    runs-on: [self-hosted, aliyun]
+    steps:
+      - name: Timed pull through proxy (SG route active)
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "--- confirm active route rule ---"
+          python3 -c "
+          import json
+          cfg = json.load(open('/data/singbox/config.json'))
+          print(cfg['route']['rules'][0])
+          "
+          echo "--- exit check ---"
+          curl -sS --max-time 15 -x http://127.0.0.1:7890 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -E "^(loc|colo)=" || true
+          IMAGE="ghcr.io/wangshun-china/lumina-rpc:dashboard7a824ba222bcb4d939495973e92efa263d69cbfb"
+          docker image rm "$IMAGE" 2>/dev/null || true
+          START=$(date +%s)
+          if timeout 420 docker pull "$IMAGE"; then
+            END=$(date +%s); SECS=$((END-START))
+            SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}'); MBS=$((SIZE/1048576))
+            echo "RESULT route=sg pulled ${MBS}MB in ${SECS}s => $((MBS*1024/(SECS>0?SECS:1))) KB/s"
+          else
+            echo "RESULT route=sg PULL FAILED/CAPPED(420s)"
+          fi
