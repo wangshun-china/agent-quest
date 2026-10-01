@@ -1,47 +1,21 @@
-name: Secret Scan
+name: Port Diagnostics
 
 on:
   workflow_dispatch:
 
 jobs:
-  scan:
-    name: Scan ACR images for baked-in secrets
+  diag:
+    name: Who holds port 3306 on this host
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Login ACR
+      - name: Port 3306 holders
         shell: bash
         run: |
-          printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
-
-      - name: Run scan script
-        shell: bash
-        env:
-          REG: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com
-        run: |
-          cat > /tmp/scan.sh <<'SCAN_EOF'
-          #!/usr/bin/env bash
-          set -uo pipefail
-          REG="${REG:?}"
-          IMAGES="$REG/wangshun_build/lumina-rpc:control-planeb1a2fcee4e39b72994128da1f953ba74dffae8bc $REG/wangshun_build/lumina-rpc:dashboardb1a2fcee4e39b72994128da1f953ba74dffae8bc $REG/wangshun_build/code-craft-ai:user-serviceff30f92af3ad07aa25b38060f1842f6844864722 $REG/wangshun_build/code-craft-ai:frontendff30f92af3ad07aa25b38060f1842f6844864722"
-          for img in $IMAGES; do
-            echo "==================== $img ===================="
-            docker pull -q "$img" >/dev/null 2>&1 || { echo "PULL SKIP (not found)"; continue; }
-            echo "--- baked ENV vars (non-standard) ---"
-            docker inspect "$img" --format '{{range .Config.Env}}{{println .}}{{end}}' \
-              | grep -viE '^(PATH|LANG|JAVA|LC_|GPG|TZ|NODE|YARN|NVM|HOSTNAME|HOME|PWD|SHLVL|LESS|M2|MAVEN|_)' || echo "(clean)"
-            echo "--- spring/env config files and key hits ---"
-            docker run --rm --entrypoint sh "$img" -c '
-              find / -xdev \( -name "application*.yml" -o -name "application*.yaml" -o -name "application*.properties" -o -name ".env" \) -type f 2>/dev/null | head -10
-            ' | while read -r f; do
-              echo "FILE: $f"
-              docker run --rm --entrypoint sh "$img" -c "cat '$f' 2>/dev/null" \
-                | grep -inE 'sk-[A-Za-z0-9]{16,}|AKID[A-Za-z0-9]{10,}|(password|secret|api[_-]?key|access[_-]?key)[^a-z].{0,4}[=:][[:space:]]*[^$[:space:]]{8,}' \
-                | grep -viE 'example|placeholder|changeit|\$\{' | head -5
-            done
-            echo "--- broad grep over /app /opt /srv /etc/nginx ---"
-            docker run --rm --entrypoint sh "$img" -c "grep -rsInE 'sk-[A-Za-z0-9]{16,}|AKID[A-Za-z0-9]{10,}' /app /opt /srv /etc/nginx 2>/dev/null | head -8"
-            echo "(scan of image done)"
-          done
-          echo "==================== SCAN COMPLETE ===================="
-          SCAN_EOF
-          bash /tmp/scan.sh 2>&1
+          echo "=== containers publishing 3306 ==="
+          docker ps -a --filter publish=3306 --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'
+          echo "=== all mysql-ish containers ==="
+          docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -iE "mysql|maria" || echo "(none)"
+          echo "=== ss listen 3306 ==="
+          (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep 3306 || echo "(nothing)"
+          echo "=== lumina containers state ==="
+          docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -i lumina || echo "(no lumina containers)"
