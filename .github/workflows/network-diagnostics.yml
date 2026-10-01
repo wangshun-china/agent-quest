@@ -1,21 +1,25 @@
-name: Port Diagnostics
+name: Cleanup Lumina Containers
 
 on:
   workflow_dispatch:
 
 jobs:
-  diag:
-    name: Who holds port 3306 on this host
+  clean:
+    name: Remove all lumina containers on aliyun (keep volumes)
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Port 3306 holders
+      - name: List then remove lumina containers
         shell: bash
         run: |
-          echo "=== containers publishing 3306 ==="
-          docker ps -a --filter publish=3306 --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'
-          echo "=== all mysql-ish containers ==="
-          docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -iE "mysql|maria" || echo "(none)"
-          echo "=== ss listen 3306 ==="
-          (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep 3306 || echo "(nothing)"
-          echo "=== lumina containers state ==="
-          docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -i lumina || echo "(no lumina containers)"
+          set -uo pipefail
+          echo "=== before: lumina containers ==="
+          docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -i lumina || echo "(none)"
+          IDS=$(docker ps -a --format '{{.Names}}' | grep -i lumina)
+          if [ -n "$IDS" ]; then
+            echo "$IDS" | xargs -r docker rm -f
+            echo "=== removed ==="
+          fi
+          echo "=== after: lumina containers ==="
+          docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -i lumina || echo "(none)"
+          echo "=== volumes preserved ==="
+          docker volume ls --format '{{.Name}}' | grep -i lumina || echo "(no lumina volumes)"
