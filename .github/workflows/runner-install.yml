@@ -5,10 +5,10 @@ on:
 
 jobs:
   install:
-    name: Configure runners (verbose)
+    name: Install xixi-box repo runners on aliyun
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Clean corpses from previous attempts
+      - name: Clean corpses
         shell: bash
         run: |
           set +e
@@ -18,33 +18,43 @@ jobs:
           rm -f /etc/systemd/system/github-runner-*.service
           systemctl daemon-reload
           echo "corpses cleaned"
-      - name: Configure CAD2SHP runner
+
+      - name: Download runner package (via SG proxy line)
         shell: bash
-        env:
-          REG_TOKEN: AW7AZMFAJRKK556QPFMNRHTKX5J5W
         run: |
           set -euo pipefail
-          cd /data/gh-runners/cad2shp
-          [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
+          mkdir -p /data/gh-runners/pkg && cd /data/gh-runners/pkg
+          time curl -sSL --max-time 300 -x http://127.0.0.1:7890 -o actions-runner-linux-x64-2.337.0.tar.gz \
+            https://github.com/actions/runner/releases/download/v2.337.0/actions-runner-linux-x64-2.337.0.tar.gz
+          ls -lh actions-runner-linux-x64-2.337.0.tar.gz
+
+      - name: Configure and start CAD2SHP runner
+        shell: bash
+        env:
+          REG_TOKEN: AW7AZMBGKQ5SR4UES2FNB7DKX5KY2
+        run: |
+          set -euo pipefail
+          mkdir -p /data/gh-runners/cad2shp && cd /data/gh-runners/cad2shp
+          tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
           RUN_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/xixi-box/CAD2SHP --token "$REG_TOKEN" \
-            --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -15
-          ./svc.sh install github-runner-cad2shp 2>&1 | tail -3 || true
-          systemctl enable --now github-runner-cad2shp 2>&1 | tail -2 || true
+            --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -8
+          ./svc.sh install github-runner-cad2shp 2>&1 | tail -2
+          ./svc.sh start github-runner-cad2shp 2>&1 | tail -2
           sleep 5
           systemctl is-active github-runner-cad2shp
 
-      - name: Configure JoyShockMapper runner
+      - name: Configure and start JoyShockMapper runner
         shell: bash
         env:
           REG_TOKEN: JOY_TOKEN_PLACEHOLDER
         run: |
           set -euo pipefail
-          cd /data/gh-runners/joyshock
-          [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
+          mkdir -p /data/gh-runners/joyshock && cd /data/gh-runners/joyshock
+          tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
           RUN_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/xixi-box/JoyShockMapper --token "$REG_TOKEN" \
-            --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -15
-          ./svc.sh install github-runner-joyshock 2>&1 | tail -3 || true
-          systemctl enable --now github-runner-joyshock 2>&1 | tail -2 || true
+            --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -8
+          ./svc.sh install github-runner-joyshock 2>&1 | tail -2
+          ./svc.sh start github-runner-joyshock 2>&1 | tail -2
           sleep 5
           systemctl is-active github-runner-joyshock
 
@@ -53,4 +63,4 @@ jobs:
         run: |
           sleep 20
           systemctl is-active github-runner-cad2shp github-runner-joyshock
-          echo "listeners: $(ps aux | grep -c '[R]unner.Listener')"
+          echo "listeners: $(ps aux | grep -c '[R]unner.Listener') (expect 3)"
