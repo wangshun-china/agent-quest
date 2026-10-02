@@ -1,0 +1,18 @@
+name: WSL Disk Report
+
+on:
+  workflow_dispatch:
+
+jobs:
+  report:
+    name: WSL image inventory and reclaimable space
+    runs-on: [self-hosted, wsl]
+    steps:
+      - name: Report
+        shell: bash
+        run: |
+          set +e
+          echo "=== docker root usage ==="
+          docker system df
+          echo "=== images by repo ==="
+          docker images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | sort
