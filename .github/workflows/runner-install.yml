@@ -11,12 +11,12 @@ jobs:
       - name: Configure CAD2SHP runner
         shell: bash
         env:
-          REG_TOKEN: AW7AZMCUC3YR73XORCZTG5LKX5H66_TOKEN_PLACEHOLDER
+          REG_TOKEN: AW7AZMAEQB6ME2BFIJMNRYDKX5IL2
         run: |
           set -euo pipefail
           cd /data/gh-runners/cad2shp
           [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
-          ./config.sh --url https://github.com/xixi-box/CAD2SHP --token "$REG_TOKEN" \
+          RUN_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/xixi-box/CAD2SHP --token "$REG_TOKEN" \
             --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -15
           sudo ./svc.sh install github-runner-cad2shp 2>&1 | tail -3 || true
           sudo systemctl enable --now github-runner-cad2shp 2>&1 | tail -2 || true
@@ -31,7 +31,7 @@ jobs:
           set -euo pipefail
           cd /data/gh-runners/joyshock
           [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
-          ./config.sh --url https://github.com/xixi-box/JoyShockMapper --token "$REG_TOKEN" \
+          RUN_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/xixi-box/JoyShockMapper --token "$REG_TOKEN" \
             --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -15
           sudo ./svc.sh install github-runner-joyshock 2>&1 | tail -3 || true
           sudo systemctl enable --now github-runner-joyshock 2>&1 | tail -2 || true
