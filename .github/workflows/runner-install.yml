@@ -11,7 +11,7 @@ jobs:
       - name: Configure CAD2SHP runner
         shell: bash
         env:
-          REG_TOKEN: AW7AZMAEQB6ME2BFIJMNRYDKX5IL2
+          REG_TOKEN: AW7AZMFAJRKK556QPFMNRHTKX5J5W
         run: |
           set -euo pipefail
           cd /data/gh-runners/cad2shp
