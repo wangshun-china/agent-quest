@@ -18,8 +18,8 @@ jobs:
           [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
           RUN_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/xixi-box/CAD2SHP --token "$REG_TOKEN" \
             --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -15
-          sudo ./svc.sh install github-runner-cad2shp 2>&1 | tail -3 || true
-          sudo systemctl enable --now github-runner-cad2shp 2>&1 | tail -2 || true
+          ./svc.sh install github-runner-cad2shp 2>&1 | tail -3 || true
+          systemctl enable --now github-runner-cad2shp 2>&1 | tail -2 || true
           sleep 5
           systemctl is-active github-runner-cad2shp
 
@@ -33,8 +33,8 @@ jobs:
           [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
           RUN_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/xixi-box/JoyShockMapper --token "$REG_TOKEN" \
             --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -15
-          sudo ./svc.sh install github-runner-joyshock 2>&1 | tail -3 || true
-          sudo systemctl enable --now github-runner-joyshock 2>&1 | tail -2 || true
+          ./svc.sh install github-runner-joyshock 2>&1 | tail -3 || true
+          systemctl enable --now github-runner-joyshock 2>&1 | tail -2 || true
           sleep 5
           systemctl is-active github-runner-joyshock
 
