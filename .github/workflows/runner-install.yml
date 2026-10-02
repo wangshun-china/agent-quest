@@ -1,0 +1,57 @@
+name: Runner Install
+
+on:
+  workflow_dispatch:
+
+jobs:
+  install:
+    name: Install repo-level runners for xixi-box repos
+    runs-on: [self-hosted, aliyun]
+    steps:
+      - name: Download runner package once
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /data/gh-runners/pkg && cd /data/gh-runners/pkg
+          if [ ! -f actions-runner-linux-x64-2.337.0.tar.gz ]; then
+            curl -sSL --max-time 900 -o actions-runner-linux-x64-2.337.0.tar.gz \
+              https://github.com/actions/runner/releases/download/v2.337.0/actions-runner-linux-x64-2.337.0.tar.gz
+          fi
+          ls -lh actions-runner-linux-x64-2.337.0.tar.gz
+
+      - name: Configure CAD2SHP runner
+        shell: bash
+        env:
+          REG_TOKEN: AW7AZMHPV5IYHHW7Z6Z6T2TKX5E22
+        run: |
+          set -euo pipefail
+          mkdir -p /data/gh-runners/cad2shp && cd /data/gh-runners/cad2shp
+          [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
+          ./config.sh --url https://github.com/xixi-box/CAD2SHP --token "$REG_TOKEN" \
+            --labels self-hosted,aliyun --unattended --replace >/dev/null
+          sudo ./svc.sh install github-runner-cad2shp || true
+          sudo ./svc.sh start github-runner-cad2shp || sudo systemctl restart github-runner-cad2shp
+          sleep 5
+          systemctl is-active github-runner-cad2shp
+
+      - name: Configure JoyShockMapper runner
+        shell: bash
+        env:
+          REG_TOKEN: AW7AZMGEVBGENPLZWY4DQG3KX5E24
+        run: |
+          set -euo pipefail
+          mkdir -p /data/gh-runners/joyshock && cd /data/gh-runners/joyshock
+          [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
+          ./config.sh --url https://github.com/xixi-box/JoyShockMapper --token "$REG_TOKEN" \
+            --labels self-hosted,aliyun --unattended --replace >/dev/null
+          sudo ./svc.sh install github-runner-joyshock || true
+          sudo ./svc.sh start github-runner-joyshock || sudo systemctl restart github-runner-joyshock
+          sleep 5
+          systemctl is-active github-runner-joyshock
+
+      - name: Verify both online
+        shell: bash
+        run: |
+          sleep 20
+          systemctl is-active github-runner-cad2shp github-runner-joyshock
+          ps aux | grep -c "[R]unner.Listener"
