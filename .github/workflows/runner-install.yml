@@ -8,6 +8,16 @@ jobs:
     name: Configure runners (verbose)
     runs-on: [self-hosted, aliyun]
     steps:
+      - name: Clean corpses from previous attempts
+        shell: bash
+        run: |
+          set +e
+          systemctl stop github-runner-cad2shp github-runner-joyshock 2>/dev/null
+          systemctl disable github-runner-cad2shp github-runner-joyshock 2>/dev/null
+          rm -rf /data/gh-runners/cad2shp /data/gh-runners/joyshock
+          rm -f /etc/systemd/system/github-runner-*.service
+          systemctl daemon-reload
+          echo "corpses cleaned"
       - name: Configure CAD2SHP runner
         shell: bash
         env:
