@@ -1,0 +1,54 @@
+name: JoyShock Deploy V2
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: Target env
+        required: true
+        default: aliyun
+        type: choice
+        options: [aliyun]
+      database:
+        description: Infra
+        required: true
+        default: none
+        type: choice
+        options: [none]
+      deploy_ref:
+        description: Branch to deploy
+        required: false
+        default: gui-rework
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy JoyShock site
+    runs-on: [self-hosted, aliyun]
+    steps:
+      - name: Checkout site branch
+        uses: actions/checkout@v7
+        with:
+          ref: gui-rework
+      - name: Build image (context site/)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACR="crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/joy-shock-mapper"
+          SHA="${{ github.sha }}"
+          printf '%s' "${{ secrets.ALIYUN_ACR_PASSWORD }}" | docker login "crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com" -u "aliyun4384550071" --password-stdin
+          docker buildx build --provenance=false --sbom=false             -f site/Dockerfile -t "$ACR:$SHA" -t "$ACR:latest" --push site/
+      - name: Swap container (retire manual one)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker rm -f joy-shock-mapper-site 2>/dev/null || true
+          ACR="crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/joy-shock-mapper"
+          docker run -d --name joy-shock-mapper-site --restart unless-stopped             -p 8081:80 "$ACR:$SHA"
+          sleep 5
+          docker ps --filter name=joy-shock-mapper-site --format '{{.Names}} {{.Status}}'
+      - name: Health check
+        shell: bash
+        run: |
+          sleep 3
+          docker exec joy-shock-mapper-site wget -qO- --timeout=8 http://127.0.0.1/ >/dev/null && echo "SITE OK on 8081" || echo "SITE FAILED"
