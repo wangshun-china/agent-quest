@@ -1,0 +1,33 @@
+name: Legacy Tag Inventory
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inventory:
+    name: List legacy-named tags on ACR (read-only)
+    runs-on: [self-hosted, aliyun]
+    steps:
+      - name: List all repos and legacy tags
+        shell: bash
+        run: |
+          set -uo pipefail
+          REG="crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com"
+          USER="aliyun4384550071"
+          PASS="${{ secrets.ALIYUN_ACR_PASSWORD }}"
+
+          for REPO in wangshun_build/code-craft-ai wangshun_build/lumina-rpc wangshun_build/agent-quest wangshun_build/cad2shp wangshun_build/joy-shock-mapper; do
+            WWWAUTH=$(curl -sSI --max-time 15 "https://$REG/v2/" | grep -i www-authenticate | tr -d '\r')
+            REALM=$(echo "$WWWAUTH" | grep -oE 'realm="[^"]+"' | cut -d'"' -f2)
+            SERVICE=$(echo "$WWWAUTH" | grep -oE 'service="[^"]+"' | cut -d'"' -f2)
+            TOKEN=$(curl -sS --max-time 15 -u "$USER:$PASS" "$REALM?service=$SERVICE&scope=repository:$REPO:pull" | python3 -c "import sys,json;print(json.load(sys.stdin).get('token',''))")
+            echo "==== $REPO ===="
+            curl -sS --max-time 20 -H "Authorization: Bearer $TOKEN" "https://$REG/v2/$REPO/tags/list" | python3 -c "
+          import sys, json, re
+          tags = json.load(sys.stdin).get('tags') or []
+          legacy = [t for t in tags if not re.match(r'^[0-9a-f]{40}$', t) and not t.endswith('latest') and t != 'latest']
+          sha_count = len([t for t in tags if re.match(r'^[0-9a-f]{40}$', t)])
+          lat = [t for t in tags if t.endswith('latest') and not re.match(r'^[0-9a-f]{40}$', t)]
+          print(f'  sha-versioned: {sha_count}, latest-family: {len(lat)}, LEGACY candidates: {legacy if legacy else \"(none)\"}')
+          "
+          done
