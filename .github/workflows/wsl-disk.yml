@@ -5,14 +5,29 @@ on:
 
 jobs:
   report:
-    name: WSL image inventory and reclaimable space
+    name: WSL targeted cleanup (cc/lumina old SHAs + build cache)
     runs-on: [self-hosted, wsl]
     steps:
-      - name: Report
+      - name: Cleanup
         shell: bash
         run: |
-          set +e
-          echo "=== docker root usage ==="
+          set -u
+          echo "=== running containers (protected by definition) ==="
+          docker ps --format '{{.Names}}\t{{.Image}}'
+          echo "=== 1. delete all cc/lumina tagged images EXCEPT ones used by running containers ==="
+          RUNNING_IMGS=$(docker ps --format '{{.Image}}' | sort -u)
+          docker images --format '{{.Repository}}:{{.Tag}}\t{{.ID}}' \
+            | grep -E "wangshun_build/(code-craft-ai|lumina-rpc)" \
+            | while IFS=$'\t' read -r ref id; do
+                if echo "$RUNNING_IMGS" | grep -qF "$ref"; then
+                  echo "KEEP (in use): $ref"
+                else
+                  docker image rm -f "$id" >/dev/null 2>&1 && echo "rm: $ref" || echo "rm-fail: $ref"
+                fi
+              done
+          echo "=== 2. build cache ==="
+          docker builder prune -af 2>&1 | tail -1
+          echo "=== 3. dangling ==="
+          docker image prune -f 2>&1 | tail -1
+          echo "=== after ==="
           docker system df
-          echo "=== images by repo ==="
-          docker images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | sort
