@@ -1,0 +1,24 @@
+name: WSL CC Health Probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: Probe code-craft health endpoints from inside containers
+    runs-on: [self-hosted, wsl]
+    steps:
+      - name: Container states
+        shell: bash
+        run: docker ps -a --filter name=code-craft --format '{{.Names}}\t{{.Status}}' | sort
+
+      - name: Health endpoint bodies
+        shell: bash
+        run: |
+          set -uo pipefail
+          for pair in "code-craft-app-service:8126" "code-craft-user-service:8124" "code-craft-screenshot-service:8127"; do
+            c="${pair%%:*}"; p="${pair##*:}"
+            echo "==== $c :$p/actuator/health ===="
+            docker exec "$c" wget -qO- --timeout=8 "http://127.0.0.1:$p/actuator/health" 2>&1 | head -c 600
+            echo
+          done
