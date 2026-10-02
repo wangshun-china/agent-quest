@@ -1,0 +1,41 @@
+name: Fleet Recon
+
+on:
+  workflow_dispatch:
+
+jobs:
+  aliyun:
+    name: Full container inventory on aliyun
+    runs-on: [self-hosted, aliyun]
+    steps:
+      - name: All containers with ports
+        shell: bash
+        run: docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | sort
+      - name: JoyShock site wiring
+        shell: bash
+        run: |
+          set +e
+          echo "=== inspect joy-shock-mapper-site ==="
+          docker inspect joy-shock-mapper-site --format 'image={{.Config.Image}} restart={{.HostConfig.RestartPolicy.Name}}'
+          docker inspect joy-shock-mapper-site --format 'ports={{.HostConfig.PortBindings}}'
+          docker inspect joy-shock-mapper-site --format 'networks={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+          docker inspect joy-shock-mapper-site --format 'aliases={{range $k,$v := .NetworkSettings.Networks}}{{range $a := $v.Aliases}}{{$a}} {{end}}{{end}}'
+          docker inspect joy-shock-mapper-site --format 'compose-project={{index .Config.Labels "com.docker.compose.project"}}'
+      - name: Any cad2shp containers?
+        shell: bash
+        run: docker ps -a --format '{{.Names}}' | grep -i "cad2shp\|cad" || echo "(none on aliyun)"
+
+  wsl:
+    name: Full container inventory on WSL
+    runs-on: [self-hosted, wsl]
+    steps:
+      - name: All containers with ports
+        shell: bash
+        run: docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | sort
+      - name: Any cad2shp containers?
+        shell: bash
+        run: |
+          set +e
+          docker ps -a --format '{{.Names}}' | grep -i "cad2shp\|cad" && \
+            docker inspect $(docker ps -a --format '{{.Names}}' | grep -i cad2shp | head -1) \
+              --format 'env: {{range .Config.Env}}{{println .}}{{end}}' | grep -iE "TOKEN|KEY|URL|MODEL" | sed 's/=.*/=<present>/' || echo "(none on WSL)"
