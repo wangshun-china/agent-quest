@@ -5,75 +5,42 @@ on:
 
 jobs:
   install:
-    name: Route github downloads via SG line, install runners
+    name: Configure runners (verbose)
     runs-on: [self-hosted, aliyun]
     steps:
-      - name: Route GitHub release downloads via SG dedicated line
-        shell: bash
-        run: |
-          set -euo pipefail
-          CFG=/data/singbox/config.json
-          cp "$CFG" "$CFG.bak-runnerinstall"
-          python3 - <<'PYEOF'
-          import json
-          cfg = json.load(open('/data/singbox/config.json'))
-          rules = cfg['route']['rules']
-          new_rule = {"domain_suffix": ["github.com", "objects.githubusercontent.com",
-                                        "github-releases.githubusercontent.com", "codeload.github.com"],
-                      "outbound": "\U0001F1F8\U0001F1EC\u65b0\u52a0\u5761\u4e13\u7ebf03"}
-          rules.insert(0, new_rule)
-          json.dump(cfg, open('/data/singbox/config.json', 'w'), ensure_ascii=False, indent=2)
-          print('rule inserted at top')
-          PYEOF
-          docker exec sing-box sing-box check -c /etc/sing-box/config.json
-          docker restart sing-box
-          sleep 8
-          (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep 7890 || { echo "ROLLBACK: sing-box down"; cp "$CFG.bak-runnerinstall" "$CFG"; docker restart sing-box; exit 1; }
-          echo "sing-box routing github downloads via SG line"
-
-      - name: Download runner package via proxy (SG line)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /data/gh-runners/pkg && cd /data/gh-runners/pkg
-          rm -f actions-runner-linux-x64-2.337.0.tar.gz
-          time curl -sSL --max-time 300 -x http://127.0.0.1:7890 -o actions-runner-linux-x64-2.337.0.tar.gz \
-            https://github.com/actions/runner/releases/download/v2.337.0/actions-runner-linux-x64-2.337.0.tar.gz
-          ls -lh actions-runner-linux-x64-2.337.0.tar.gz
-
       - name: Configure CAD2SHP runner
         shell: bash
         env:
-          REG_TOKEN: AW7AZMENYKX2KBPS2AV2RQ3KX5HEO
+          REG_TOKEN: AW7AZMCUC3YR73XORCZTG5LKX5H66_TOKEN_PLACEHOLDER
         run: |
           set -euo pipefail
-          mkdir -p /data/gh-runners/cad2shp && cd /data/gh-runners/cad2shp
+          cd /data/gh-runners/cad2shp
           [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
           ./config.sh --url https://github.com/xixi-box/CAD2SHP --token "$REG_TOKEN" \
-            --labels self-hosted,aliyun --unattended --replace >/dev/null 2>&1
-          sudo ./svc.sh install github-runner-cad2shp 2>/dev/null || true
-          sudo ./svc.sh start github-runner-cad2shp 2>/dev/null || sudo systemctl restart github-runner-cad2shp
+            --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -15
+          sudo ./svc.sh install github-runner-cad2shp 2>&1 | tail -3 || true
+          sudo systemctl enable --now github-runner-cad2shp 2>&1 | tail -2 || true
           sleep 5
           systemctl is-active github-runner-cad2shp
 
       - name: Configure JoyShockMapper runner
         shell: bash
         env:
-          REG_TOKEN: AW7AZMCQB7I2REWTYE2QLDLKX5HEQ
+          REG_TOKEN: JOY_TOKEN_PLACEHOLDER
         run: |
           set -euo pipefail
-          mkdir -p /data/gh-runners/joyshock && cd /data/gh-runners/joyshock
+          cd /data/gh-runners/joyshock
           [ -f config.sh ] || tar xzf /data/gh-runners/pkg/actions-runner-linux-x64-2.337.0.tar.gz
           ./config.sh --url https://github.com/xixi-box/JoyShockMapper --token "$REG_TOKEN" \
-            --labels self-hosted,aliyun --unattended --replace >/dev/null 2>&1
-          sudo ./svc.sh install github-runner-joyshock 2>/dev/null || true
-          sudo ./svc.sh start github-runner-joyshock 2>/dev/null || sudo systemctl restart github-runner-joyshock
+            --labels self-hosted,aliyun --unattended --replace 2>&1 | tail -15
+          sudo ./svc.sh install github-runner-joyshock 2>&1 | tail -3 || true
+          sudo systemctl enable --now github-runner-joyshock 2>&1 | tail -2 || true
           sleep 5
           systemctl is-active github-runner-joyshock
 
-      - name: Verify both online
+      - name: Verify
         shell: bash
         run: |
-          sleep 25
+          sleep 20
           systemctl is-active github-runner-cad2shp github-runner-joyshock
-          echo "listeners: $(ps aux | grep -c '[R]unner.Listener') (expect 3: org + 2 new)"
+          echo "listeners: $(ps aux | grep -c '[R]unner.Listener')"
