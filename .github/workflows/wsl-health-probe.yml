@@ -12,13 +12,24 @@ jobs:
         shell: bash
         run: docker ps -a --filter name=code-craft --format '{{.Names}}\t{{.Status}}' | sort
 
-      - name: Health endpoint bodies
+      - name: Health endpoint bodies (both path variants)
         shell: bash
         run: |
-          set -uo pipefail
-          for pair in "code-craft-app-service:8126" "code-craft-user-service:8124" "code-craft-screenshot-service:8127"; do
+          set +e
+          for pair in "code-craft-user-service:8124" "code-craft-screenshot-service:8127"; do
             c="${pair%%:*}"; p="${pair##*:}"
-            echo "==== $c :$p/actuator/health ===="
-            docker exec "$c" wget -qO- --timeout=8 "http://127.0.0.1:$p/actuator/health" 2>&1 | head -c 600
-            echo
+            for path in "/api/actuator/health" "/actuator/health"; do
+              echo "==== $c :$p$path ===="
+              docker exec "$c" wget -qO- --timeout=8 "http://127.0.0.1:$p$path" 2>&1 | head -c 400
+              echo
+            done
+          done
+
+      - name: Last 25 log lines of failing services
+        shell: bash
+        run: |
+          set +e
+          for c in code-craft-user-service code-craft-screenshot-service; do
+            echo "==== $c tail ===="
+            docker logs "$c" --tail 25 2>&1 | tail -25
           done
